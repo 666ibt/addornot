@@ -41,7 +41,17 @@ _PROMPT = (
 )
 
 
-async def daily_book() -> tuple[str, str, str]:
+def _exclusions(exclude: list[str] | None) -> str:
+    if not exclude:
+        return ""
+    joined = "; ".join(exclude)
+    return (
+        "\n\nЭти книги уже были недавно — НЕ выбирай их и предложи другую: "
+        f"{joined}."
+    )
+
+
+async def daily_book(exclude: list[str] | None = None) -> tuple[str, str, str]:
     """Возвращает (title, author, message_html)."""
     # Структурированный вывод: гарантированно валидный JSON по схеме.
     if claude_client._client is None:  # noqa: SLF001 — простая проверка конфигурации
@@ -53,7 +63,7 @@ async def daily_book() -> tuple[str, str, str]:
         system=_SYSTEM,
         thinking={"type": "adaptive"},
         output_config={"format": {"type": "json_schema", "schema": _SCHEMA}},
-        messages=[{"role": "user", "content": _PROMPT}],
+        messages=[{"role": "user", "content": _PROMPT + _exclusions(exclude)}],
     )
     text = "".join(b.text for b in message.content if b.type == "text").strip()
     data = json.loads(text)

@@ -34,13 +34,23 @@ _SYSTEM_YT = (
 )
 
 
-async def _from_transcript(transcript: str) -> str:
+def _exclusions(exclude: list[str] | None) -> str:
+    if not exclude:
+        return ""
+    return (
+        "\n\nЭти личности уже были недавно — НЕ пиши про них, выбери другого человека: "
+        f"{'; '.join(exclude)}."
+    )
+
+
+async def _from_transcript(transcript: str, exclude: list[str] | None) -> str:
     prompt = (
         "Ниже — транскрипт YouTube-разбора. Определи центральную историческую или "
         "общественную личность, о которой идёт речь, и составь о ней заметку. "
         "Опирайся на содержание ролика, но факты и цитаты сверь веб-поиском "
         "(без Википедии).\n\n"
-        f"{_FORMAT}\n\n"
+        f"{_FORMAT}"
+        f"{_exclusions(exclude)}\n\n"
         "=== ТРАНСКРИПТ РОЛИКА ===\n"
         f"{transcript}"
     )
@@ -67,21 +77,21 @@ _PROMPT_WEB = (
 )
 
 
-async def _from_web() -> str:
+async def _from_web(exclude: list[str] | None) -> str:
     return await claude_client.generate(
-        _SYSTEM_WEB, _PROMPT_WEB, use_web_search=True, max_tokens=3000
+        _SYSTEM_WEB, _PROMPT_WEB + _exclusions(exclude), use_web_search=True, max_tokens=3000
     )
 
 
-async def daily_person() -> str:
+async def daily_person(exclude: list[str] | None = None) -> str:
     if youtube.has_channels():
         try:
             material = await youtube.daily_transcript()
             if material:
                 transcript, video_id = material
                 logger.info("Заметка о личности по ролику %s", video_id)
-                return await _from_transcript(transcript)
+                return await _from_transcript(transcript, exclude)
             logger.info("Свежих роликов с субтитрами нет — иду в веб-поиск")
         except Exception:
             logger.exception("Сбой при получении транскрипта — откат на веб-поиск")
-    return await _from_web()
+    return await _from_web(exclude)

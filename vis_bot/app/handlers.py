@@ -5,15 +5,10 @@ import logging
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from aiogram.types import CallbackQuery, Message
 
-from . import db
-from .content import book, news, person
+from . import db, digest
+from .content import book
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -28,40 +23,6 @@ WELCOME = (
     "/stop — отписаться\n"
     "/start — подписаться снова"
 )
-
-
-def _full_book_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📚 Где прочитать целиком", callback_data="book_full")]
-        ]
-    )
-
-
-async def send_digest(message_target, user_id: int) -> None:
-    """Собирает и отправляет полную дневную подборку одному пользователю.
-
-    message_target — объект с методом .answer() (Message) либо bot-обёртка.
-    """
-    # Новости
-    try:
-        await message_target.answer(await news.daily_news())
-    except Exception:
-        logger.exception("Не удалось сформировать новости")
-
-    # Книжный отрывок + кнопка «полная версия»
-    try:
-        title, author, text = await book.daily_book()
-        await db.set_last_book(user_id, title, author)
-        await message_target.answer(text, reply_markup=_full_book_keyboard())
-    except Exception:
-        logger.exception("Не удалось сформировать книжный отрывок")
-
-    # Личность
-    try:
-        await message_target.answer(await person.daily_person())
-    except Exception:
-        logger.exception("Не удалось сформировать заметку о личности")
 
 
 @router.message(Command("start"))
@@ -79,7 +40,8 @@ async def cmd_stop(message: Message) -> None:
 @router.message(Command("today"))
 async def cmd_today(message: Message) -> None:
     await message.answer("Собираю подборку, пара минут… ⏳")
-    await send_digest(message, message.from_user.id)
+    content = await digest.build()
+    await digest.send(message, message.from_user.id, content)
 
 
 @router.callback_query(F.data == "book_full")

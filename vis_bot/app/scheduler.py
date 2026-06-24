@@ -8,29 +8,9 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from . import db
-from .handlers import send_digest
+from . import db, digest
 
 logger = logging.getLogger(__name__)
-
-
-async def _broadcast(bot: Bot) -> None:
-    """Отправляет дневную подборку всем подписчикам."""
-    user_ids = await db.get_subscribers()
-    logger.info("Запускаю рассылку для %d подписчиков", len(user_ids))
-
-    for user_id in user_ids:
-        # Лёгкая обёртка: даём send_digest объект с .answer(), как у Message.
-        target = _DirectSender(bot, user_id)
-        try:
-            await send_digest(target, user_id)
-        except TelegramForbiddenError:
-            # Пользователь заблокировал бота — отписываем.
-            await db.unsubscribe(user_id)
-        except Exception:
-            logger.exception("Ошибка при рассылке пользователю %s", user_id)
-        # Чтобы не упереться в лимиты Telegram при большой базе.
-        await asyncio.sleep(0.1)
 
 
 class _DirectSender:
@@ -42,6 +22,29 @@ class _DirectSender:
 
     async def answer(self, text: str, **kwargs):
         return await self._bot.send_message(self._chat_id, text, **kwargs)
+
+
+async def _broadcast(bot: Bot) -> None:
+    """Генерирует подборку один раз и рассылает её всем подписчикам."""
+    user_ids = await db.get_subscribers()
+    logger.info("Запускаю рассылку для %d подписчиков", len(user_ids))
+    if not user_ids:
+        return
+
+    # Контент общий для всех — генерируем единожды (дешевле и без дублей).
+    content = await digest.build()
+
+    for user_id in user_ids:
+        target = _DirectSender(bot, user_id)
+        try:
+            await digest.send(target, user_id, content)
+        except TelegramForbiddenError:
+            # Пользователь заблокировал бота — отписываем.
+            await db.unsubscribe(user_id)
+        except Exception:
+            logger.exception("Ошибка при рассылке пользователю %s", user_id)
+        # Чтобы не упереться в лимиты Telegram при большой базе.
+        await asyncio.sleep(0.1)
 
 
 def setup_scheduler(bot: Bot, *, hour: int, minute: int, timezone: str) -> AsyncIOScheduler:
