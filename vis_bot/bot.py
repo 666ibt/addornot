@@ -31,6 +31,10 @@ async def main() -> None:
     await db.init()
     content_store.configure(config.data_dir)
 
+    # Покажем, под каким ботом работаем (id до двоеточия — публичный, не секрет).
+    bot_id = config.bot_token.split(":", 1)[0]
+    logging.info("Загружен BOT_TOKEN для бота id=%s", bot_id)
+
     # Все сообщения по умолчанию в HTML — наш контент размечен тегами <b>/<i>.
     bot = Bot(
         token=config.bot_token,

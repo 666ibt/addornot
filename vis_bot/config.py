@@ -8,7 +8,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Загружаем .env, который лежит рядом с этим файлом.
-load_dotenv(Path(__file__).resolve().parent / ".env")
+# override=True — значения из .env имеют приоритет над уже заданными
+# переменными окружения (иначе их легко «перебить», особенно в Codespaces).
+load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 _BASE_DIR = Path(__file__).resolve().parent
 
