@@ -10,16 +10,17 @@ from dotenv import load_dotenv
 # Загружаем .env, который лежит рядом с этим файлом.
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
+_BASE_DIR = Path(__file__).resolve().parent
+
 
 @dataclass(frozen=True)
 class Config:
     bot_token: str
-    anthropic_api_key: str
     daily_hour: int
     daily_minute: int
     timezone: str
     db_path: str
-    youtube_channel_ids: list[str]
+    data_dir: str
 
 
 def _require(name: str) -> str:
@@ -35,12 +36,9 @@ def _require(name: str) -> str:
 def load_config() -> Config:
     return Config(
         bot_token=_require("BOT_TOKEN"),
-        anthropic_api_key=_require("ANTHROPIC_API_KEY"),
         daily_hour=int(os.getenv("DAILY_HOUR", "9")),
         daily_minute=int(os.getenv("DAILY_MINUTE", "0")),
         timezone=os.getenv("TIMEZONE", "Europe/Moscow"),
-        db_path=os.getenv("DB_PATH", str(Path(__file__).resolve().parent / "vis.db")),
-        youtube_channel_ids=[
-            c.strip() for c in os.getenv("YOUTUBE_CHANNEL_IDS", "").split(",") if c.strip()
-        ],
+        db_path=os.getenv("DB_PATH", str(_BASE_DIR / "vis.db")),
+        data_dir=os.getenv("DATA_DIR", str(_BASE_DIR / "data")),
     )

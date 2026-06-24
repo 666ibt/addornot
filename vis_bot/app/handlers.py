@@ -8,7 +8,6 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from . import db, digest
-from .content import book
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -39,8 +38,10 @@ async def cmd_stop(message: Message) -> None:
 
 @router.message(Command("today"))
 async def cmd_today(message: Message) -> None:
-    await message.answer("Собираю подборку, пара минут… ⏳")
     content = await digest.build()
+    if not (content.news_text or content.book_text or content.person_text):
+        await message.answer("Свежий контент пока не добавлен 🙂")
+        return
     await digest.send(message, message.from_user.id, content)
 
 
@@ -51,5 +52,11 @@ async def on_book_full(callback: CallbackQuery) -> None:
     if not saved:
         await callback.message.answer("Не помню, о какой книге речь — дождись следующего отрывка 🙂")
         return
-    title, author = saved
-    await callback.message.answer(await book.where_to_read(title, author))
+    _title, _author, where_to_read = saved
+    if where_to_read:
+        await callback.message.answer(where_to_read)
+    else:
+        await callback.message.answer(
+            "Для этой книги не указано, где её прочитать. Поищи по названию в "
+            "библиотеке или книжных сервисах 🙂"
+        )

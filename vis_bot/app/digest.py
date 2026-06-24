@@ -1,30 +1,26 @@
-"""Сборка дневной подборки один раз и отправка её получателям.
+"""Сборка дневной подборки из файлового контента и отправка получателям.
 
-Контент (новости, книга, личность) генерируется ОДИН раз за рассылку, а не для
-каждого подписчика. Книга и личность записываются в историю, чтобы не
-повторяться (антидубли). Новости не дедуплицируются — они и так привязаны ко дню.
+Подборка собирается ОДИН раз за рассылку: бот берёт по одной ещё не отправленной
+записи из news/books/persons (антидубли через таблицу sent_items) и шлёт всем
+подписчикам одинаковый контент.
 """
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from . import db
-from .content import book, news, person
+from . import content_store, db
 
 logger = logging.getLogger(__name__)
-
-# Имя личности — текст внутри первого <b>...</b> в заметке (формат «👤 <b>Имя</b> …»).
-_NAME_RE = re.compile(r"<b>(.*?)</b>", re.DOTALL)
 
 
 @dataclass
 class Digest:
     news_text: str | None = None
-    book: tuple[str, str, str] | None = None  # (title, author, message_html)
+    book_text: str | None = None
+    book_entry: dict | None = None
     person_text: str | None = None
 
 
@@ -36,36 +32,39 @@ def full_book_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+async def _pick(category: str) -> tuple[dict, str] | None:
+    """Первая ещё не отправленная запись категории + её ключ."""
+    entries = content_store.load(category)
+    if not entries:
+        return None
+    used = await db.sent_keys(category)
+    for entry in entries:
+        key = content_store.entry_key(category, entry)
+        if key not in used:
+            return entry, key
+    logger.warning("Свежие записи в категории '%s' закончились — добавь новые", category)
+    return None
+
+
 async def build() -> Digest:
-    """Генерирует подборку и фиксирует выбранные книгу/личность в истории."""
+    """Собирает подборку и фиксирует выбранные записи в истории."""
     digest = Digest()
 
-    # Новости (без дедупликации).
-    try:
-        digest.news_text = await news.daily_news()
-    except Exception:
-        logger.exception("Не удалось сформировать новости")
+    if (picked := await _pick("news")) is not None:
+        entry, key = picked
+        digest.news_text = content_store.render_news(entry)
+        await db.remember_item("news", key)
 
-    # Книга — с учётом недавно отправленных.
-    try:
-        exclude = await db.recent_items("book")
-        title, author, text = await book.daily_book(exclude)
-        digest.book = (title, author, text)
-        await db.remember_item("book", f"{title} — {author}")
-    except Exception:
-        logger.exception("Не удалось сформировать книжный отрывок")
+    if (picked := await _pick("book")) is not None:
+        entry, key = picked
+        digest.book_entry = entry
+        digest.book_text = content_store.render_book(entry)
+        await db.remember_item("book", key)
 
-    # Личность — с учётом недавно отправленных.
-    try:
-        exclude = await db.recent_items("person")
-        digest.person_text = await person.daily_person(exclude)
-        match = _NAME_RE.search(digest.person_text or "")
-        if match:
-            name = match.group(1).strip()
-            if name:
-                await db.remember_item("person", name)
-    except Exception:
-        logger.exception("Не удалось сформировать заметку о личности")
+    if (picked := await _pick("person")) is not None:
+        entry, key = picked
+        digest.person_text = content_store.render_person(entry)
+        await db.remember_item("person", key)
 
     return digest
 
@@ -75,11 +74,12 @@ async def send(target, user_id: int, digest: Digest) -> None:
     if digest.news_text:
         await target.answer(digest.news_text)
 
-    if digest.book:
-        title, author, text = digest.book
-        # Запоминаем книгу для этого пользователя — нужно для кнопки «полная версия».
-        await db.set_last_book(user_id, title, author)
-        await target.answer(text, reply_markup=full_book_keyboard())
+    if digest.book_text and digest.book_entry is not None:
+        title = digest.book_entry.get("title", "")
+        author = digest.book_entry.get("author", "")
+        where = digest.book_entry.get("where_to_read", "")
+        await db.set_last_book(user_id, title, author, where)
+        await target.answer(digest.book_text, reply_markup=full_book_keyboard())
 
     if digest.person_text:
         await target.answer(digest.person_text)
