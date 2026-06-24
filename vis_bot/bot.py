@@ -13,7 +13,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from app import db
-from app.content import claude_client
+from app.content import claude_client, youtube
 from app.handlers import router
 from app.scheduler import setup_scheduler
 from config import load_config
@@ -31,6 +31,7 @@ async def main() -> None:
     db.configure(config.db_path)
     await db.init()
     claude_client.configure(config.anthropic_api_key)
+    youtube.configure(config.youtube_channel_ids)
 
     # Все сообщения по умолчанию в HTML — наш контент размечен тегами <b>/<i>.
     bot = Bot(

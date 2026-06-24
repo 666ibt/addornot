@@ -19,6 +19,7 @@ class Config:
     daily_minute: int
     timezone: str
     db_path: str
+    youtube_channel_ids: list[str]
 
 
 def _require(name: str) -> str:
@@ -39,4 +40,7 @@ def load_config() -> Config:
         daily_minute=int(os.getenv("DAILY_MINUTE", "0")),
         timezone=os.getenv("TIMEZONE", "Europe/Moscow"),
         db_path=os.getenv("DB_PATH", str(Path(__file__).resolve().parent / "vis.db")),
+        youtube_channel_ids=[
+            c.strip() for c in os.getenv("YOUTUBE_CHANNEL_IDS", "").split(",") if c.strip()
+        ],
     )
