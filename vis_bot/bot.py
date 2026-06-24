@@ -12,7 +12,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
-from app import content_store, db
+from app import content_store, db, news_rss
 from app.handlers import configure_handlers, router
 from app.scheduler import setup_scheduler
 from config import load_config
@@ -30,6 +30,7 @@ async def main() -> None:
     db.configure(config.db_path)
     await db.init()
     content_store.configure(config.data_dir)
+    news_rss.configure(config.news_mode, config.news_rss_feeds)
     configure_handlers(
         config.admin_ids,
         hour=config.daily_hour,

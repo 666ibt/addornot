@@ -14,7 +14,7 @@ import logging
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from . import content_store, db
+from . import content_store, db, news_rss
 
 logger = logging.getLogger(__name__)
 
@@ -37,21 +37,44 @@ async def _pick(category: str) -> str | None:
     return None
 
 
+async def _news_text() -> str | None:
+    """Текст новостей дня: из RSS (если включён), иначе из файла news.json."""
+    if news_rss.enabled():
+        try:
+            text = await news_rss.fetch_text()
+            if text:
+                return text
+            logger.warning("RSS не дал новостей — пробую файл news.json")
+        except Exception:
+            logger.exception("Сбой RSS — пробую файл news.json")
+
+    key = await _pick("news")
+    if not key:
+        return None
+    await db.remember_item("news", key)
+    entry = content_store.find("news", key)
+    return content_store.render_news(entry) if entry else None
+
+
 async def ensure_today() -> dict:
     """Возвращает подборку на сегодня, создавая её при наступлении нового дня."""
     current = await db.get_current_digest()
     if current and current["day"] == _today():
         return current
 
-    keys = {}
-    for category in ("news", "book", "person"):
-        key = await _pick(category)
-        if key:
-            await db.remember_item(category, key)
-        keys[category] = key
+    news_text = await _news_text()
+    book_key = await _pick("book")
+    if book_key:
+        await db.remember_item("book", book_key)
+    person_key = await _pick("person")
+    if person_key:
+        await db.remember_item("person", person_key)
 
-    await db.set_current_digest(_today(), keys["news"], keys["book"], keys["person"])
-    logger.info("Подборка на %s собрана: %s", _today(), keys)
+    await db.set_current_digest(_today(), news_text, book_key, person_key)
+    logger.info(
+        "Подборка на %s собрана (news=%s, book=%s, person=%s)",
+        _today(), bool(news_text), book_key, person_key,
+    )
     return await db.get_current_digest()  # type: ignore[return-value]
 
 
@@ -86,13 +109,10 @@ async def send_news(target) -> bool:
     Возвращает False, если новостей на сегодня нет.
     """
     current = await db.get_current_digest()
-    if not current or not current["news_key"]:
-        return False
-    entry = content_store.find("news", current["news_key"])
-    if not entry:
+    if not current or not current["news_text"]:
         return False
     await target.answer(
-        content_store.render_news(entry),
+        current["news_text"],
         reply_markup=_news_keyboard(bool(current["book_key"])),
     )
     return True

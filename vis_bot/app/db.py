@@ -44,12 +44,17 @@ async def init() -> None:
             CREATE TABLE IF NOT EXISTS current_digest (
                 id         INTEGER PRIMARY KEY CHECK (id = 1),
                 day        TEXT,
-                news_key   TEXT,
+                news_text  TEXT,
                 book_key   TEXT,
                 person_key TEXT
             )
             """
         )
+        # Для баз, созданных раньше (была колонка news_key): добавляем news_text.
+        try:
+            await db.execute("ALTER TABLE current_digest ADD COLUMN news_text TEXT")
+        except Exception:
+            pass
         await db.commit()
 
 
@@ -106,28 +111,28 @@ async def remember_item(category: str, item_key: str) -> None:
 async def get_current_digest() -> dict | None:
     async with aiosqlite.connect(_db_path) as db:
         async with db.execute(
-            "SELECT day, news_key, book_key, person_key FROM current_digest WHERE id = 1"
+            "SELECT day, news_text, book_key, person_key FROM current_digest WHERE id = 1"
         ) as cur:
             row = await cur.fetchone()
     if not row:
         return None
-    return {"day": row[0], "news_key": row[1], "book_key": row[2], "person_key": row[3]}
+    return {"day": row[0], "news_text": row[1], "book_key": row[2], "person_key": row[3]}
 
 
 async def set_current_digest(
-    day: str, news_key: str | None, book_key: str | None, person_key: str | None
+    day: str, news_text: str | None, book_key: str | None, person_key: str | None
 ) -> None:
     async with aiosqlite.connect(_db_path) as db:
         await db.execute(
             """
-            INSERT INTO current_digest (id, day, news_key, book_key, person_key)
+            INSERT INTO current_digest (id, day, news_text, book_key, person_key)
             VALUES (1, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 day = excluded.day,
-                news_key = excluded.news_key,
+                news_text = excluded.news_text,
                 book_key = excluded.book_key,
                 person_key = excluded.person_key
             """,
-            (day, news_key, book_key, person_key),
+            (day, news_text, book_key, person_key),
         )
         await db.commit()

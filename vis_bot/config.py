@@ -14,6 +14,9 @@ load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 _BASE_DIR = Path(__file__).resolve().parent
 
+# Новостные RSS-ленты по умолчанию (можно переопределить через NEWS_RSS_FEEDS).
+_DEFAULT_FEEDS = "https://feeds.bbci.co.uk/russian/rss.xml,https://tass.ru/rss/v2.xml"
+
 
 @dataclass(frozen=True)
 class Config:
@@ -24,6 +27,8 @@ class Config:
     timezone: str
     db_path: str
     data_dir: str
+    news_mode: str
+    news_rss_feeds: list[str]
 
 
 def _require(name: str) -> str:
@@ -56,4 +61,8 @@ def load_config() -> Config:
         timezone=os.getenv("TIMEZONE", "Europe/Moscow"),
         db_path=os.getenv("DB_PATH", str(_BASE_DIR / "vis.db")),
         data_dir=os.getenv("DATA_DIR", str(_BASE_DIR / "data")),
+        news_mode=os.getenv("NEWS_MODE", "rss").strip().lower(),
+        news_rss_feeds=[
+            u.strip() for u in os.getenv("NEWS_RSS_FEEDS", _DEFAULT_FEEDS).split(",") if u.strip()
+        ],
     )
