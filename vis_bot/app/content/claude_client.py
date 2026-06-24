@@ -11,8 +11,29 @@ from anthropic.types import Message
 
 MODEL = "claude-opus-4-8"
 
-# Серверный инструмент веб-поиска (выполняется на стороне Anthropic).
-WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search"}
+# Домены Википедии — их явно запрещаем в поиске (по требованию: без Wikipedia).
+BLOCKED_DOMAINS = [
+    "wikipedia.org",
+    "ru.wikipedia.org",
+    "en.wikipedia.org",
+    "m.wikipedia.org",
+    "wikiwand.com",
+    "wikidata.org",
+]
+
+
+def _web_search_tool() -> dict:
+    """Серверный инструмент веб-поиска (выполняется на стороне Anthropic).
+
+    blocked_domains не пускает Википедию в выдачу — источники остаются
+    «живыми»: статьи, материалы, разборы и т.п.
+    """
+    return {
+        "type": "web_search_20260209",
+        "name": "web_search",
+        "blocked_domains": BLOCKED_DOMAINS,
+    }
+
 
 _client: AsyncAnthropic | None = None
 
@@ -47,7 +68,7 @@ async def generate(
         "messages": [{"role": "user", "content": prompt}],
     }
     if use_web_search:
-        kwargs["tools"] = [WEB_SEARCH_TOOL]
+        kwargs["tools"] = [_web_search_tool()]
 
     message = await _client.messages.create(**kwargs)
 
