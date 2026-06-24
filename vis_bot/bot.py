@@ -13,7 +13,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from app import content_store, db
-from app.handlers import router
+from app.handlers import configure_handlers, router
 from app.scheduler import setup_scheduler
 from config import load_config
 
@@ -30,6 +30,12 @@ async def main() -> None:
     db.configure(config.db_path)
     await db.init()
     content_store.configure(config.data_dir)
+    configure_handlers(
+        config.admin_ids,
+        hour=config.daily_hour,
+        minute=config.daily_minute,
+        timezone=config.timezone,
+    )
 
     # Покажем, под каким ботом работаем (id до двоеточия — публичный, не секрет).
     bot_id = config.bot_token.split(":", 1)[0]

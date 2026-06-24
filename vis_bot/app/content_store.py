@@ -5,21 +5,26 @@
 
 Форматы записей:
 
-news.json:    [ {"items": ["Новость 1", "Новость 2"]} , ... ]
+news.json:    [ {"text": "Готовый текст новостей (HTML)"} , ... ]
+              (можно вместо text дать {"items": ["...", "..."]} — тогда бот сам
+              соберёт список под заголовком «Главное за день».)
+
 books.json:   [ {"title": "...", "author": "...", "excerpt": "...",
-                 "hook": "(необязательно)", "where_to_read": "(необязательно)"} , ... ]
+                 "hook": "(необязательно)",
+                 "full_file": "books_files/имя.epub (необязательно)"} , ... ]
+
 persons.json: [ {"name": "...", "years": "1900–1980", "bio": "...",
                  "achievements": ["...", "..."], "quotes": ["...", "..."]} , ... ]
 
-В любой записи можно задать своё поле "id" — тогда оно станет ключом для
-антидублей (иначе ключ выводится из содержимого). В текстах можно использовать
-HTML-теги <b> и <i> (Telegram parse_mode=HTML).
+В любой записи можно задать своё поле "id" — тогда оно станет ключом антидублей.
+В текстах можно использовать HTML-теги <b> и <i> (Telegram parse_mode=HTML).
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -56,14 +61,36 @@ def entry_key(category: str, entry: dict) -> str:
         return f"{entry.get('title', '')} — {entry.get('author', '')}"
     if category == "person":
         return entry.get("name", "")
-    raw = json.dumps(entry.get("items", entry), ensure_ascii=False, sort_keys=True)
+    raw = json.dumps(entry.get("text", entry.get("items", entry)), ensure_ascii=False, sort_keys=True)
     return "news:" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
-# --- Рендеринг записей в готовые сообщения Telegram (HTML) ---
+def find(category: str, key: str | None) -> dict | None:
+    if not key:
+        return None
+    for entry in load(category):
+        if entry_key(category, entry) == key:
+            return entry
+    return None
+
+
+def book_full_path(entry: dict) -> Path | None:
+    """Путь к файлу полной версии книги (если задан и существует)."""
+    rel = entry.get("full_file")
+    if not rel:
+        return None
+    path = Path(rel) if os.path.isabs(rel) else _data_dir / rel
+    return path if path.exists() else None
+
+
+# --- Рендеринг ---
 
 
 def render_news(entry: dict) -> str:
+    # Приоритет — готовый текст оператора, отправляем как есть.
+    text = entry.get("text")
+    if text:
+        return text
     items = entry.get("items") or []
     lines = "\n".join(f"• {item}" for item in items)
     return f"🌍 <b>Главное за день</b>\n\n{lines}"
@@ -76,21 +103,4 @@ def render_book(entry: dict) -> str:
     hook = entry.get("hook")
     if hook:
         parts += ["", hook]
-    return "\n".join(parts)
-
-
-def render_person(entry: dict) -> str:
-    name = entry.get("name", "")
-    years = entry.get("years", "")
-    header = f"👤 <b>{name}</b>" + (f" ({years})" if years else "")
-    parts = [header, "", entry.get("bio", "")]
-
-    achievements = entry.get("achievements") or []
-    if achievements:
-        parts += ["", "<b>Достижения:</b>"] + [f"• {a}" for a in achievements]
-
-    quotes = entry.get("quotes") or []
-    if quotes:
-        parts += ["", "<b>Цитаты:</b>"] + [f"<i>{q}</i>" for q in quotes]
-
     return "\n".join(parts)

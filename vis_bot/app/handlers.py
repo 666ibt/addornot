@@ -2,61 +2,110 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, FSInputFile, Message
 
-from . import db, digest
+from . import content_store, db, digest, docgen
 
 logger = logging.getLogger(__name__)
 router = Router()
 
-WELCOME = (
-    "👋 Привет! Я <b>Vis</b> — каждый день присылаю тебе:\n\n"
-    "🌍 Главные мировые новости\n"
-    "📖 Отрывок из стоящей книги\n"
-    "👤 Историю одной выдающейся личности\n\n"
-    "Ты подписан. Команды:\n"
-    "/today — прислать сегодняшнюю подборку сейчас\n"
-    "/stop — отписаться\n"
-    "/start — подписаться снова"
-)
+# Настраивается из bot.py.
+_admin_ids: list[int] = []
+_schedule_text: str = ""
+
+
+def configure_handlers(admin_ids: list[int], hour: int, minute: int, timezone: str) -> None:
+    global _admin_ids, _schedule_text
+    _admin_ids = admin_ids
+    _schedule_text = f"{hour:02d}:{minute:02d} ({timezone})"
+
+
+def _is_admin(user_id: int) -> bool:
+    return user_id in _admin_ids
 
 
 @router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
     await db.add_user(message.from_user.id, message.from_user.username)
-    await message.answer(WELCOME)
+    await message.answer(
+        "✅ Готово, ты подписан на <b>Vis</b>!\n\n"
+        f"Каждый день в <b>{_schedule_text}</b> пришлю подборку: новости, "
+        "отрывок книги и личность дня.\n\n"
+        "Отписаться — /stop"
+    )
 
 
 @router.message(Command("stop"))
 async def cmd_stop(message: Message) -> None:
     await db.unsubscribe(message.from_user.id)
-    await message.answer("Готово, отписал. Возвращайся через /start 👋")
+    await message.answer("Отписал. Возвращайся через /start 👋")
 
 
 @router.message(Command("today"))
 async def cmd_today(message: Message) -> None:
-    content = await digest.build()
-    if not (content.news_text or content.book_text or content.person_text):
-        await message.answer("Свежий контент пока не добавлен 🙂")
+    # Только для администратора — обычным пользователям недоступно.
+    if not _is_admin(message.from_user.id):
         return
-    await digest.send(message, message.from_user.id, content)
+    await digest.ensure_today()
+    sent = await digest.send_news(message)
+    if not sent:
+        await message.answer("На сегодня контент ещё не добавлен.")
 
 
-@router.callback_query(F.data == "book_full")
-async def on_book_full(callback: CallbackQuery) -> None:
+@router.callback_query(F.data == "go_book")
+async def on_go_book(callback: CallbackQuery) -> None:
     await callback.answer()
-    saved = await db.get_last_book(callback.from_user.id)
-    if not saved:
-        await callback.message.answer("Не помню, о какой книге речь — дождись следующего отрывка 🙂")
+    current = await db.get_current_digest()
+    entry = content_store.find("book", current["book_key"]) if current else None
+    if not entry:
+        await callback.message.answer("Отрывок на сегодня недоступен.")
         return
-    _title, _author, where_to_read = saved
-    if where_to_read:
-        await callback.message.answer(where_to_read)
-    else:
+    has_file = content_store.book_full_path(entry) is not None
+    has_person = bool(current and current["person_key"])
+    await callback.message.answer(
+        content_store.render_book(entry),
+        reply_markup=digest.book_keyboard(has_file, has_person),
+    )
+
+
+@router.callback_query(F.data == "book_file")
+async def on_book_file(callback: CallbackQuery) -> None:
+    await callback.answer()
+    current = await db.get_current_digest()
+    entry = content_store.find("book", current["book_key"]) if current else None
+    path = content_store.book_full_path(entry) if entry else None
+    if not path:
         await callback.message.answer(
-            "Для этой книги не указано, где её прочитать. Поищи по названию в "
-            "библиотеке или книжных сервисах 🙂"
+            "Полная версия этой книги пока недоступна для скачивания."
         )
+        return
+    # EPUB открывается в приложении Books на iOS (через «Поделиться» → Books).
+    await callback.message.answer_document(
+        FSInputFile(str(path), filename=path.name),
+        caption="Полная версия. На iPhone: «Поделиться» → <b>Books</b>.",
+    )
+
+
+@router.callback_query(F.data == "go_person")
+async def on_go_person(callback: CallbackQuery) -> None:
+    await callback.answer()
+    current = await db.get_current_digest()
+    entry = content_store.find("person", current["person_key"]) if current else None
+    if not entry:
+        await callback.message.answer("Личность на сегодня недоступна.")
+        return
+    path, filename = docgen.build_person_docx(entry)
+    try:
+        await callback.message.answer_document(
+            FSInputFile(path, filename=filename),
+            caption="👤 Личность дня",
+        )
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass

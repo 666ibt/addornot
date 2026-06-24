@@ -1,4 +1,8 @@
-"""Ежедневная рассылка по расписанию (APScheduler)."""
+"""Ежедневная рассылка по расписанию (APScheduler).
+
+Рассылается только стартовое сообщение с новостями и кнопкой — дальше
+пользователь раскрывает отрывок и личность сам.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -25,26 +29,22 @@ class _DirectSender:
 
 
 async def _broadcast(bot: Bot) -> None:
-    """Генерирует подборку один раз и рассылает её всем подписчикам."""
     user_ids = await db.get_subscribers()
     logger.info("Запускаю рассылку для %d подписчиков", len(user_ids))
     if not user_ids:
         return
 
-    # Контент общий для всех — генерируем единожды (дешевле и без дублей).
-    content = await digest.build()
+    await digest.ensure_today()
 
     for user_id in user_ids:
         target = _DirectSender(bot, user_id)
         try:
-            await digest.send(target, user_id, content)
+            await digest.send_news(target)
         except TelegramForbiddenError:
-            # Пользователь заблокировал бота — отписываем.
             await db.unsubscribe(user_id)
         except Exception:
             logger.exception("Ошибка при рассылке пользователю %s", user_id)
-        # Чтобы не упереться в лимиты Telegram при большой базе.
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.1)  # бережём лимиты Telegram
 
 
 def setup_scheduler(bot: Bot, *, hour: int, minute: int, timezone: str) -> AsyncIOScheduler:
