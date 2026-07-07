@@ -1,0 +1,108 @@
+'use strict';
+
+/**
+ * Claude vision fallback.
+ *
+ * When local OCR + regex parsing is not confident, we send the page image to
+ * Claude and ask for the накладная / договор directly. This mirrors how the
+ * original skill reads messy scans (stamps, handwriting, skew) far better than
+ * plain OCR.
+ *
+ * Requires an Anthropic API key, configured in the app's Settings. The key is
+ * stored locally (electron-store) and never committed.
+ */
+
+const DEFAULT_MODEL = 'claude-opus-4-8';
+const API_URL = 'https://api.anthropic.com/v1/messages';
+
+const SYSTEM_PROMPT = `Ты — ассистент по разбору отсканированных топливных накладных (ТТН / ГСМ).
+На изображении одна страница накладной. Это либо российская
+"Товарно-транспортная накладная" (типовая форма № 1-т), либо накладная
+Ферганского НПЗ "Накладная на отпуск материалов".
+
+Найди на странице:
+1. НОМЕР НАКЛАДНОЙ (накладная) — число рядом со словом «Накладная №».
+2. НОМЕР ДОГОВОРА (договор) — начинается с "SGN", например SGN-158/25,
+   SGN-59/26-P, SGN-2-25. Если это внутреннее перемещение, договор = "Перемещение".
+
+Верни СТРОГО JSON без пояснений и без markdown:
+{"nakladnaya": "<номер или пусто>", "dogovor": "<SGN-... | Перемещение | пусто>"}`;
+
+/**
+ * @param {Buffer} imageBuffer  PNG image of the page
+ * @param {{apiKey: string, model?: string}} opts
+ * @returns {Promise<{nakladnaya: string, dogovor: string, source: 'ai'}>}
+ */
+async function extractWithClaude(imageBuffer, opts) {
+  if (!opts || !opts.apiKey) {
+    throw new Error('Anthropic API key is not configured.');
+  }
+  const model = opts.model || DEFAULT_MODEL;
+  const base64 = imageBuffer.toString('base64');
+
+  const body = {
+    model,
+    max_tokens: 256,
+    system: SYSTEM_PROMPT,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: 'image/png', data: base64 },
+          },
+          { type: 'text', text: 'Извлеки накладную и договор. Ответ строго в JSON.' },
+        ],
+      },
+    ],
+  };
+
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': opts.apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Claude API error ${res.status}: ${detail.slice(0, 300)}`);
+  }
+
+  const data = await res.json();
+  const text = (data.content || [])
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+    .trim();
+
+  const parsed = parseJsonLoose(text);
+  return {
+    nakladnaya: (parsed.nakladnaya || '').toString().trim(),
+    dogovor: (parsed.dogovor || '').toString().trim(),
+    source: 'ai',
+  };
+}
+
+/** Extract the first JSON object from a possibly-chatty response. */
+function parseJsonLoose(text) {
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    const m = text.match(/\{[\s\S]*\}/);
+    if (m) {
+      try {
+        return JSON.parse(m[0]);
+      } catch (_) {
+        /* fall through */
+      }
+    }
+    return {};
+  }
+}
+
+module.exports = { extractWithClaude, DEFAULT_MODEL };

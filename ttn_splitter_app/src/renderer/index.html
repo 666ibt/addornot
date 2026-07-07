@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';" />
+    <title>TTN Waybill Splitter</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">⛽</span>
+        <div>
+          <h1>Разбивка накладных ТТН / ГСМ</h1>
+          <p class="sub">Многостраничный скан → по одному PDF на страницу, имя <code>{накладная}_{договор}.pdf</code></p>
+        </div>
+      </div>
+      <button id="settingsBtn" class="ghost" title="Настройки">⚙ Настройки</button>
+    </header>
+
+    <section id="dropzone" class="dropzone">
+      <div class="dz-inner">
+        <div class="dz-icon">📄⬇️</div>
+        <p><b>Перетащите сюда PDF-файлы</b> или</p>
+        <button id="pickBtn" class="primary">Выбрать PDF…</button>
+        <p class="hint">Поддерживаются: Товарно-транспортная накладная (форма 1-т) и «Накладная на отпуск материалов» (ФНПЗ)</p>
+      </div>
+    </section>
+
+    <section id="workarea" class="hidden">
+      <div class="toolbar">
+        <button id="addMoreBtn" class="ghost">+ Ещё PDF</button>
+        <div class="spacer"></div>
+        <div class="outdir">
+          <span id="outDirLabel" class="muted">Папка не выбрана</span>
+          <button id="pickOutBtn" class="ghost">Папка вывода…</button>
+        </div>
+        <button id="saveBtn" class="primary" disabled>💾 Сохранить всё</button>
+      </div>
+
+      <div id="progressWrap" class="progress hidden">
+        <div class="bar"><div id="progressBar" class="fill"></div></div>
+        <span id="progressText" class="muted"></span>
+      </div>
+
+      <div id="cards" class="cards"></div>
+    </section>
+
+    <!-- Settings modal -->
+    <div id="settingsModal" class="modal hidden">
+      <div class="modal-card">
+        <h2>Настройки</h2>
+
+        <label class="field">
+          <span>Anthropic API-ключ (для AI-распознавания)</span>
+          <input id="apiKey" type="password" placeholder="sk-ant-…" autocomplete="off" />
+          <small class="muted">Хранится только на этом компьютере. Нужен для резервного распознавания через Claude.</small>
+        </label>
+
+        <label class="field">
+          <span>Модель</span>
+          <input id="model" type="text" placeholder="claude-opus-4-8" />
+        </label>
+
+        <label class="field checkbox">
+          <input id="useAiFallback" type="checkbox" />
+          <span>Использовать AI-распознавание (Claude), когда OCR не уверен</span>
+        </label>
+
+        <label class="field">
+          <span>Когда подключать AI</span>
+          <select id="aiOnConfidence">
+            <option value="low">Только при низкой уверенности (рекомендуется)</option>
+            <option value="medium">При низкой и средней уверенности</option>
+            <option value="never">Никогда (только локальный OCR)</option>
+          </select>
+        </label>
+
+        <div class="modal-actions">
+          <button id="settingsCancel" class="ghost">Отмена</button>
+          <button id="settingsSave" class="primary">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

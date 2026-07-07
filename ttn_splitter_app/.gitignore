@@ -1,0 +1,15 @@
+node_modules/
+release/
+dist/
+*.log
+.DS_Store
+# Local OCR language data (downloaded on demand / decompressed at runtime)
+tessdata/
+_tessdata/
+*.traineddata
+*.traineddata.gz
+# Smoke-test scratch files
+_smoke_*.js
+_sample.pdf
+# Never commit secrets
+.env
