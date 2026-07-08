@@ -49,8 +49,18 @@ jobs:
             ttn_splitter_app/release/*.exe
           if-no-files-found: error
 
-      - name: Attach installer to Release (tag builds only)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish GitHub Release with installer
+        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v1.0.0
+          name: TTN Waybill Splitter v1.0.0
+          target_commitish: ${{ github.sha }}
           files: ttn_splitter_app/release/*.exe
+          body: |
+            Готовый установщик для Windows.
+
+            1. Скачайте файл `.exe` из раздела **Assets** ниже.
+            2. Запустите его (при предупреждении SmartScreen: «Подробнее» → «Выполнить в любом случае»).
+
+            Node.js и терминал не требуются.
