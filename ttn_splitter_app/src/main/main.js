@@ -45,8 +45,9 @@ function createWindow() {
 }
 
 // --- diagnostics -----------------------------------------------------------
-// Flip to false for a clean release once the issue is understood.
-const DEBUG_BUILD = true;
+// Off for release: normal use is clean. Error dialogs and ttn-debug.log still
+// fire on any real failure; set TTN_DEBUG=1 to force DevTools open.
+const DEBUG_BUILD = false;
 
 function logLine(msg) {
   try {

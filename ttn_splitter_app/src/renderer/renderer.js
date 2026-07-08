@@ -1,6 +1,14 @@
 'use strict';
 
 /* global window, document */
+// Wrapped in an IIFE with a re-entry guard: in some packaged Electron builds
+// this script can be evaluated twice in the same page, and a top-level
+// `const` would then throw "Identifier already declared", killing the whole
+// script (dead buttons). The guard makes a second evaluation a harmless no-op.
+(function () {
+if (window.__ttnRendererLoaded) return;
+window.__ttnRendererLoaded = true;
+
 const api = window.api;
 
 // Make any uncaught error visible on screen instead of silently killing the UI.
@@ -275,3 +283,4 @@ window.addEventListener('DOMContentLoaded', async () => {
     showFatal('Не удалось загрузить настройки: ' + (err.message || err));
   }
 });
+})();
