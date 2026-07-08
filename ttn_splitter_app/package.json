@@ -35,7 +35,13 @@
     "directories": {
       "output": "release"
     },
-    "win": { "target": ["nsis"] },
+    "win": {
+      "target": [
+        { "target": "portable", "arch": ["x64"] },
+        { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "portable": { "artifactName": "TTN-Waybill-Splitter-${version}-portable.exe" },
     "mac": { "target": ["dmg"], "category": "public.app-category.productivity" },
     "linux": { "target": ["AppImage"], "category": "Office" }
   }

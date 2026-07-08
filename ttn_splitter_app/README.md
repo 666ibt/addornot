@@ -53,12 +53,19 @@ npm start
 
 ```bash
 npm run dist        # для текущей ОС
-npm run dist:win    # Windows (.exe / NSIS)
+npm run dist:win    # Windows: portable .exe + установщик NSIS
 npm run dist:mac    # macOS (.dmg)
 npm run dist:linux  # Linux (AppImage)
 ```
 
-Готовые файлы появятся в папке `release/`.
+Готовые файлы появятся в папке `release/`. Для Windows собираются два файла:
+
+- `TTN-Waybill-Splitter-<версия>-portable.exe` — **портативная** версия,
+  запускается без установки;
+- `TTN Waybill Splitter Setup <версия>.exe` — обычный установщик.
+
+> Готовые сборки для Windows также автоматически публикуются в разделе
+> [Releases](https://github.com/666ibt/addornot/releases) через GitHub Actions.
 
 ## Настройка AI-распознавания (необязательно, но рекомендуется)
 
