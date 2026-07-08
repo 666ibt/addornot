@@ -1,0 +1,56 @@
+name: Build Windows App
+
+# Builds the TTN Waybill Splitter into a Windows installer (.exe) on GitHub's
+# Windows machines. The finished installer is uploaded as a downloadable
+# artifact on each run, and attached to a GitHub Release when you push a tag
+# like "v1.0.0".
+
+on:
+  push:
+    branches: [ "claude/ttn-waybill-splitter-app-pw5ct5" ]
+    paths:
+      - "ttn_splitter_app/**"
+      - ".github/workflows/build-windows.yml"
+    tags: [ "v*" ]
+  workflow_dispatch:   # lets you run it manually from the Actions tab
+
+permissions:
+  contents: write      # needed to attach the .exe to a Release on tag builds
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ttn_splitter_app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run unit tests
+        run: node --test test/extract.test.js
+
+      - name: Build Windows installer
+        run: npm run dist:win
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ttn-waybill-splitter-windows
+          path: |
+            ttn_splitter_app/release/*.exe
+          if-no-files-found: error
+
+      - name: Attach installer to Release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ttn_splitter_app/release/*.exe
