@@ -31,12 +31,15 @@
     <section id="workarea" class="hidden">
       <div class="toolbar">
         <button id="addMoreBtn" class="ghost">+ Ещё PDF</button>
+        <button id="restartBtn" class="ghost hidden">↺ Начать заново</button>
         <div class="spacer"></div>
-        <div class="outdir">
-          <span id="outDirLabel" class="muted">Папка не выбрана</span>
-          <button id="pickOutBtn" class="ghost">Папка вывода…</button>
-        </div>
+        <button id="pickOutBtn" class="ghost">Папка вывода…</button>
         <button id="saveBtn" class="primary" disabled>💾 Сохранить всё</button>
+      </div>
+
+      <div class="outdir-row">
+        <span class="outdir-label-caption">Папка вывода:</span>
+        <span id="outDirLabel" class="muted">не выбрана</span>
       </div>
 
       <div id="progressWrap" class="progress hidden">
@@ -80,6 +83,36 @@
         <div class="modal-actions">
           <button id="settingsCancel" class="ghost">Отмена</button>
           <button id="settingsSave" class="primary">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Zoom / review modal -->
+    <div id="zoomModal" class="modal zoom hidden">
+      <div class="zoom-card">
+        <div class="zoom-header">
+          <span id="zoomTitle" class="zoom-title"></span>
+          <div class="zoom-header-right">
+            <span id="zoomBadges"></span>
+            <button id="zoomClose" class="ghost" title="Закрыть (Esc)">✕</button>
+          </div>
+        </div>
+        <div class="zoom-body">
+          <div class="zoom-image" id="zoomImageWrap" title="Клик — увеличить/уместить">
+            <div id="zoomLoading" class="zoom-loading">Загрузка изображения…</div>
+            <img id="zoomImg" alt="страница" />
+          </div>
+          <div class="zoom-side">
+            <label class="small field">накладная
+              <input id="zoomNak" placeholder="напр. 80130800" />
+            </label>
+            <label class="small field">договор
+              <input id="zoomDog" placeholder="напр. ST-248/26-KS или Перемещение" />
+            </label>
+            <div class="fname">→ <span id="zoomFilename" class="name"></span></div>
+            <p class="zoom-hint muted">Проверьте номера по изображению и при необходимости
+              исправьте — изменения сразу применятся к карточке.</p>
+          </div>
         </div>
       </div>
     </div>

@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs/promises');
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 
-const { renderPagesToImages, splitPage } = require('./pdf');
+const { renderPagesToImages, renderSinglePage, splitPage } = require('./pdf');
 const { ocrImage, terminate: terminateOcr } = require('./ocr');
 const { extractWithClaude } = require('./ai');
 const { extract, makeFilename } = require('./extract');
@@ -131,6 +131,12 @@ ipcMain.handle('output:pickDir', async () => {
 });
 
 ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
+
+// High-resolution image of a single page, rendered on demand for the zoom view.
+ipcMain.handle('page:image', async (_e, { filePath, pageIndex }) => {
+  const png = await renderSinglePage(filePath, pageIndex);
+  return `data:image/png;base64,${png.toString('base64')}`;
+});
 
 // ---------------------------------------------------------------------------
 // IPC: processing

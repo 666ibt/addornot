@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('api', {
   pickFiles: () => ipcRenderer.invoke('files:pick'),
   pickOutputDir: () => ipcRenderer.invoke('output:pickDir'),
   openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
+  pageImage: (filePath, pageIndex) => ipcRenderer.invoke('page:image', { filePath, pageIndex }),
 
   // processing
   startProcessing: (filePaths) => ipcRenderer.invoke('process:start', filePaths),

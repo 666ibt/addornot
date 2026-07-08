@@ -44,6 +44,26 @@ async function renderPagesToImages(filePath, scale = 2.5) {
   return images;
 }
 
+/**
+ * Rasterize a single page to a PNG buffer (used for the on-demand zoom view).
+ * @param {string} filePath
+ * @param {number} pageIndex  0-based
+ * @param {number} scale
+ * @returns {Promise<Buffer>}
+ */
+async function renderSinglePage(filePath, pageIndex, scale = 3.2) {
+  const mupdf = await getMupdf();
+  const bytes = await fs.readFile(filePath);
+  const doc = mupdf.Document.openDocument(bytes, 'application/pdf');
+  const page = doc.loadPage(pageIndex);
+  const pix = page.toPixmap(mupdf.Matrix.scale(scale, scale), mupdf.ColorSpace.DeviceRGB, false, true);
+  const png = Buffer.from(pix.asPNG());
+  pix.destroy?.();
+  page.destroy?.();
+  doc.destroy?.();
+  return png;
+}
+
 /** Number of pages in a PDF. */
 async function pageCount(filePath) {
   const bytes = await fs.readFile(filePath);

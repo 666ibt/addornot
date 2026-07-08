@@ -100,6 +100,9 @@ function registerEvents() {
     state.processing = false;
     $('progressWrap').classList.add('hidden');
     updateSaveButton();
+    // After processing, offer "start over" instead of "add more".
+    $('addMoreBtn').classList.add('hidden');
+    $('restartBtn').classList.remove('hidden');
     toast('Распознавание завершено. Проверьте значения и сохраните.', 'ok');
   });
 }
@@ -155,6 +158,8 @@ function renderCard(pageId) {
     rec.editDog = e.target.value;
     updatePreview(card, rec);
   });
+  const thumb = card.querySelector('.thumb');
+  if (thumb) thumb.addEventListener('click', () => openZoom(pageId));
 }
 
 function updatePreview(card, rec) {
@@ -167,6 +172,90 @@ function updatePreview(card, rec) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Push edits made anywhere back onto the card (inputs + filename preview).
+function syncCardInputs(rec) {
+  const card = document.querySelector(`[data-page="${rec.pageId}"]`);
+  if (!card) return;
+  const nak = card.querySelector('[data-f="nak"]');
+  const dog = card.querySelector('[data-f="dog"]');
+  if (nak && nak.value !== (rec.editNak || '')) nak.value = rec.editNak || '';
+  if (dog && dog.value !== (rec.editDog || '')) dog.value = rec.editDog || '';
+  updatePreview(card, rec);
+}
+
+// --- zoom / review modal ---------------------------------------------------
+function updateZoomFilename(rec) {
+  const preview = makeFilename(rec.editNak, rec.editDog);
+  const el = $('zoomFilename');
+  el.textContent = preview;
+  el.className = 'name' + (preview.includes('NA') ? ' warn' : '');
+}
+
+async function openZoom(pageId) {
+  const rec = state.pages.get(pageId);
+  if (!rec) return;
+  state.zoomPageId = pageId;
+
+  $('zoomTitle').textContent = `${rec.fileName} · стр. ${rec.pageIndex + 1}`;
+  const conf = rec.confidence || 'low';
+  const confLabel = { high: 'высокая', medium: 'средняя', low: 'низкая' }[conf] || conf;
+  $('zoomBadges').innerHTML = `<span class="badge ${conf}">${escapeHtml(confLabel)}</span>`;
+  $('zoomNak').value = rec.editNak || '';
+  $('zoomDog').value = rec.editDog || '';
+  updateZoomFilename(rec);
+
+  const img = $('zoomImg');
+  const loading = $('zoomLoading');
+  $('zoomImageWrap').classList.remove('actual');
+  img.style.display = 'none';
+  loading.style.display = '';
+  loading.textContent = 'Загрузка изображения…';
+  img.onload = () => { loading.style.display = 'none'; img.style.display = ''; };
+  img.onerror = () => { loading.textContent = 'Не удалось загрузить изображение.'; };
+  $('zoomModal').classList.remove('hidden');
+
+  // Render a high-resolution image of this page on demand; fall back to thumb.
+  try {
+    const dataUrl = await api.pageImage(rec.filePath, rec.pageIndex);
+    if (state.zoomPageId !== pageId) return; // closed/switched while loading
+    img.src = dataUrl;
+  } catch (err) {
+    img.src = rec.thumb || '';
+  }
+}
+
+function closeZoom() {
+  $('zoomModal').classList.add('hidden');
+  $('zoomImg').src = '';
+  state.zoomPageId = null;
+}
+
+function onZoomEdit() {
+  const rec = state.pages.get(state.zoomPageId);
+  if (!rec) return;
+  rec.editNak = $('zoomNak').value;
+  rec.editDog = $('zoomDog').value;
+  updateZoomFilename(rec);
+  syncCardInputs(rec);
+}
+
+// --- start over ------------------------------------------------------------
+function restart() {
+  state.jobId = null;
+  state.pages.clear();
+  state.total = 0;
+  state.done = 0;
+  state.processing = false;
+  state.zoomPageId = null;
+  $('cards').innerHTML = '';
+  $('progressWrap').classList.add('hidden');
+  $('workarea').classList.add('hidden');
+  $('dropzone').classList.remove('hidden');
+  $('restartBtn').classList.add('hidden');
+  $('addMoreBtn').classList.remove('hidden');
+  updateSaveButton();
 }
 
 // --- saving ----------------------------------------------------------------
@@ -264,11 +353,25 @@ window.addEventListener('DOMContentLoaded', async () => {
   wireDropzone();
   $('pickBtn').addEventListener('click', pickFiles);
   $('addMoreBtn').addEventListener('click', pickFiles);
+  $('restartBtn').addEventListener('click', restart);
   $('pickOutBtn').addEventListener('click', pickOutput);
   $('saveBtn').addEventListener('click', save);
   $('settingsBtn').addEventListener('click', openSettings);
   $('settingsSave').addEventListener('click', saveSettings);
   $('settingsCancel').addEventListener('click', () => $('settingsModal').classList.add('hidden'));
+
+  // Zoom modal
+  $('zoomClose').addEventListener('click', closeZoom);
+  $('zoomNak').addEventListener('input', onZoomEdit);
+  $('zoomDog').addEventListener('input', onZoomEdit);
+  $('zoomImageWrap').addEventListener('click', () =>
+    $('zoomImageWrap').classList.toggle('actual'));
+  $('zoomModal').addEventListener('click', (e) => {
+    if (e.target.id === 'zoomModal') closeZoom();
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('zoomModal').classList.contains('hidden')) closeZoom();
+  });
 
   registerEvents();
 
