@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="planetB" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#55b0ec"/><stop offset="1" stop-color="#2f8ed6"/>
+    </linearGradient>
+    <linearGradient id="ringB" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8bc53f"/><stop offset=".55" stop-color="#55b0ec"/><stop offset="1" stop-color="#2f8ed6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="102" fill="#17233f"/>
+  <g transform="translate(256 262) scale(2.2) rotate(-22)">
+    <ellipse cx="0" cy="0" rx="87" ry="34" fill="none" stroke="url(#ringB)" stroke-width="12.3"/>
+    <circle cx="0" cy="0" r="43.7" fill="url(#planetB)"/>
+  </g>
+</svg>

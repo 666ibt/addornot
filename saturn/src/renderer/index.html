@@ -11,16 +11,20 @@
     <header class="topbar">
       <div class="brand">
         <span class="logo" id="appLogo">
-          <!-- Placeholder Saturn logo — replaced with the provided logo.svg -->
-          <svg width="36" height="36" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Saturn">
+          <!-- Saturn mark (from the provided logo.svg) -->
+          <svg width="40" height="40" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Saturn">
             <defs>
-              <linearGradient id="satPlanet" x1="12" y1="10" x2="34" y2="34" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#f7cf7f"/><stop offset="1" stop-color="#e08a3c"/>
+              <linearGradient id="satPlanet" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#55b0ec"/><stop offset="1" stop-color="#2f8ed6"/>
+              </linearGradient>
+              <linearGradient id="satRing" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#8bc53f"/><stop offset=".55" stop-color="#55b0ec"/><stop offset="1" stop-color="#2f8ed6"/>
               </linearGradient>
             </defs>
-            <ellipse cx="24" cy="25" rx="22" ry="7.5" transform="rotate(-22 24 25)" stroke="#3b82f6" stroke-width="2.6" fill="none" opacity="0.45"/>
-            <circle cx="23" cy="21" r="11" fill="url(#satPlanet)"/>
-            <path d="M2.8 30.5 A22 7.5 -22 0 0 40 12.5" transform="rotate(-22 24 25)" stroke="#7cabff" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+            <g transform="translate(100 100) rotate(-22)">
+              <ellipse cx="0" cy="0" rx="87" ry="34" fill="none" stroke="url(#satRing)" stroke-width="12.3"/>
+              <circle cx="0" cy="0" r="43.7" fill="url(#satPlanet)"/>
+            </g>
           </svg>
         </span>
         <div>
