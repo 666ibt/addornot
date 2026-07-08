@@ -1,6 +1,6 @@
 {
   "name": "ttn-waybill-splitter",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Desktop app that splits multi-page PDF scans of fuel/ГСМ waybills (ТТН) into one PDF per page, named {накладная}_{договор}.pdf.",
   "author": "addornot",
   "license": "MIT",
@@ -31,6 +31,9 @@
       "src/**/*",
       "assets/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      { "from": "tessdata", "to": "tessdata" }
     ],
     "directories": {
       "output": "release"

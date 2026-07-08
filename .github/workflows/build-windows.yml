@@ -53,19 +53,20 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.2
-          name: TTN Waybill Splitter v1.0.2
+          tag_name: v1.0.3
+          name: TTN Waybill Splitter v1.0.3
           target_commitish: ${{ github.sha }}
           files: ttn_splitter_app/release/*.exe
           body: |
             Готовое приложение для Windows. Node.js и терминал не требуются.
-            Исправлена ошибка, из-за которой не работали кнопки.
+            Словари распознавания (рус+англ) встроены — работает офлайн,
+            интернет не нужен.
 
             **Два варианта в разделе Assets ниже:**
 
-            - **`TTN-Waybill-Splitter-1.0.2-portable.exe`** — портативная версия.
+            - **`TTN-Waybill-Splitter-1.0.3-portable.exe`** — портативная версия.
               Ничего не устанавливает: скачал и сразу запустил. Рекомендуется.
-            - **`TTN Waybill Splitter Setup 1.0.2.exe`** — обычный установщик.
+            - **`TTN Waybill Splitter Setup 1.0.3.exe`** — обычный установщик.
 
             При первом запуске Windows покажет SmartScreen («Windows защитила
             ваш компьютер») — приложение не подписано платным сертификатом.

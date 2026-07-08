@@ -7,22 +7,39 @@ const { createWorker } = require('tesseract.js');
 /**
  * Thin wrapper around a single reusable Tesseract worker (rus + eng).
  *
- * By default tesseract.js fetches language data from a CDN on first use. For a
- * fully offline install, drop `rus.traineddata.gz` and `eng.traineddata.gz`
- * into a `tessdata/` folder next to the app and it will be used automatically.
+ * The Russian + English language data is BUNDLED with the app (see the
+ * `tessdata/` folder, shipped via electron-builder extraResources). We point
+ * Tesseract at that local folder so OCR works fully offline and never contacts
+ * a CDN — important on networks with SSL inspection / self-signed certificates.
  */
 
 let workerPromise = null;
 
-function localLangPath() {
-  const candidate = path.join(process.cwd(), 'tessdata');
-  return fs.existsSync(candidate) ? candidate : undefined;
+/** Locate the folder that holds rus/eng .traineddata.gz. */
+function tessdataDir() {
+  const candidates = [];
+  // Packaged app: extraResources copies tessdata next to the app resources.
+  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'tessdata'));
+  // Dev run (npm start): project-root tessdata (src/main -> ../../tessdata).
+  candidates.push(path.join(__dirname, '..', '..', 'tessdata'));
+  candidates.push(path.join(process.cwd(), 'tessdata'));
+  for (const dir of candidates) {
+    try {
+      if (fs.existsSync(path.join(dir, 'rus.traineddata.gz'))) return dir;
+    } catch (_) { /* ignore */ }
+  }
+  return null;
 }
 
 async function getWorker() {
   if (!workerPromise) {
-    const langPath = localLangPath();
-    workerPromise = createWorker('rus+eng', 1, langPath ? { langPath, gzip: true } : {});
+    const langPath = tessdataDir();
+    // With a local langPath + gzip, Tesseract reads the data from disk and
+    // makes no network request. cacheMethod:'none' avoids writing a cache
+    // (the bundled folder may be read-only). If the data is somehow missing,
+    // fall back to the default (CDN) behaviour rather than crashing.
+    const opts = langPath ? { langPath, gzip: true, cacheMethod: 'none' } : {};
+    workerPromise = createWorker('rus+eng', 1, opts);
   }
   return workerPromise;
 }

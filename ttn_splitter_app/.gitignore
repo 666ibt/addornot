@@ -3,13 +3,15 @@ release/
 dist/
 *.log
 .DS_Store
-# Local OCR language data (downloaded on demand / decompressed at runtime)
-tessdata/
+# The bundled tessdata/*.traineddata.gz IS committed (offline OCR).
+# Ignore only the runtime cache and any decompressed copies.
 _tessdata/
-*.traineddata
-*.traineddata.gz
+/eng.traineddata
+/rus.traineddata
 # Smoke-test scratch files
 _smoke_*.js
+_ui_probe*.js
+_dbg.js
 _sample.pdf
 # Never commit secrets
 .env
