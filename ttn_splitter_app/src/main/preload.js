@@ -16,10 +16,12 @@ contextBridge.exposeInMainWorld('api', {
   pickFiles: () => ipcRenderer.invoke('files:pick'),
   pickOutputDir: () => ipcRenderer.invoke('output:pickDir'),
   openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
-  pageImage: (filePath, pageIndex) => ipcRenderer.invoke('page:image', { filePath, pageIndex }),
+  pageImage: (filePath, pageIndex, rotation) =>
+    ipcRenderer.invoke('page:image', { filePath, pageIndex, rotation }),
 
   // processing
   startProcessing: (filePaths) => ipcRenderer.invoke('process:start', filePaths),
+  cancel: () => ipcRenderer.invoke('process:cancel'),
   save: (payload) => ipcRenderer.invoke('process:save', payload),
 
   // events (main -> renderer)

@@ -2,7 +2,7 @@
 
 const fs = require('fs/promises');
 const path = require('path');
-const { PDFDocument } = require('pdf-lib');
+const { PDFDocument, degrees } = require('pdf-lib');
 
 /**
  * PDF helpers:
@@ -77,11 +77,17 @@ async function pageCount(filePath) {
  * @param {number} pageIndex  0-based page index
  * @param {string} outPath    destination file path
  */
-async function splitPage(filePath, pageIndex, outPath) {
+async function splitPage(filePath, pageIndex, outPath, rotation = 0) {
   const bytes = await fs.readFile(filePath);
   const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
   const out = await PDFDocument.create();
   const [copied] = await out.copyPages(src, [pageIndex]);
+  if (rotation) {
+    // Add the correction on top of any existing page rotation, so the saved
+    // file opens upright.
+    const current = copied.getRotation().angle || 0;
+    copied.setRotation(degrees((current + rotation) % 360));
+  }
   out.addPage(copied);
   const outBytes = await out.save();
   await fs.mkdir(path.dirname(outPath), { recursive: true });
@@ -89,4 +95,4 @@ async function splitPage(filePath, pageIndex, outPath) {
   return outPath;
 }
 
-module.exports = { renderPagesToImages, pageCount, splitPage };
+module.exports = { renderPagesToImages, renderSinglePage, pageCount, splitPage };

@@ -80,6 +80,7 @@ async function startProcessing(filePaths) {
 
 function registerEvents() {
   api.on('process:meta', (p) => {
+    if (!state.processing) return; // ignore a stray meta after restart
     state.jobId = p.jobId;
     state.total += p.totalPages;
     updateProgress();
@@ -90,19 +91,18 @@ function registerEvents() {
   });
 
   api.on('process:page', (p) => {
+    if (p.jobId !== state.jobId) return; // ignore stray events after restart
     state.pages.set(p.pageId, { ...p, editNak: p.nakladnaya, editDog: p.dogovor });
     state.done = p.done;
     renderCard(p.pageId);
     updateProgress();
   });
 
-  api.on('process:complete', () => {
+  api.on('process:complete', (p) => {
+    if (p.jobId !== state.jobId) return;
     state.processing = false;
     $('progressWrap').classList.add('hidden');
     updateSaveButton();
-    // After processing, offer "start over" instead of "add more".
-    $('addMoreBtn').classList.add('hidden');
-    $('restartBtn').classList.remove('hidden');
     toast('Распознавание завершено. Проверьте значения и сохраните.', 'ok');
   });
 }
@@ -218,7 +218,7 @@ async function openZoom(pageId) {
 
   // Render a high-resolution image of this page on demand; fall back to thumb.
   try {
-    const dataUrl = await api.pageImage(rec.filePath, rec.pageIndex);
+    const dataUrl = await api.pageImage(rec.filePath, rec.pageIndex, rec.rotation || 0);
     if (state.zoomPageId !== pageId) return; // closed/switched while loading
     img.src = dataUrl;
   } catch (err) {
@@ -243,18 +243,19 @@ function onZoomEdit() {
 
 // --- start over ------------------------------------------------------------
 function restart() {
+  // If a run is still going, cancel it so it stops producing cards.
+  if (state.processing) api.cancel();
   state.jobId = null;
   state.pages.clear();
   state.total = 0;
   state.done = 0;
   state.processing = false;
   state.zoomPageId = null;
+  closeZoom();
   $('cards').innerHTML = '';
   $('progressWrap').classList.add('hidden');
   $('workarea').classList.add('hidden');
   $('dropzone').classList.remove('hidden');
-  $('restartBtn').classList.add('hidden');
-  $('addMoreBtn').classList.remove('hidden');
   updateSaveButton();
 }
 
@@ -352,7 +353,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Wire the UI first, so buttons work even if a later step fails.
   wireDropzone();
   $('pickBtn').addEventListener('click', pickFiles);
-  $('addMoreBtn').addEventListener('click', pickFiles);
   $('restartBtn').addEventListener('click', restart);
   $('pickOutBtn').addEventListener('click', pickOutput);
   $('saveBtn').addEventListener('click', save);

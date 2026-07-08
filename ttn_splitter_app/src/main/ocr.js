@@ -3,7 +3,9 @@
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const Jimp = require('jimp');
 const { createWorker } = require('tesseract.js');
+const { extract } = require('./extract');
 
 /**
  * Thin wrapper around a single reusable Tesseract worker (rus + eng).
@@ -80,15 +82,55 @@ async function getWorker() {
   return workerPromise;
 }
 
+/** Rotate a PNG buffer counter-clockwise by `deg` (0/90/180/270). */
+async function rotateBuffer(buffer, deg) {
+  if (!deg) return buffer;
+  const img = await Jimp.read(buffer);
+  img.rotate(deg);
+  return img.getBufferAsync(Jimp.MIME_PNG);
+}
+
+async function recognizeScored(worker, buffer, deg) {
+  const buf = await rotateBuffer(buffer, deg);
+  const { data } = await worker.recognize(buf);
+  const text = data.text || '';
+  const r = extract(text);
+  const fields = (r.nakladnaya ? 1 : 0) + (r.dogovor ? 1 : 0);
+  const confidence = data.confidence || 0;
+  return { text, rotation: deg, confidence, fields, score: fields * 1000 + confidence };
+}
+
 /**
- * Run OCR on a PNG/JPEG image buffer.
+ * Run OCR on a PNG image buffer, auto-correcting page orientation.
+ *
+ * Scanned waybills are sometimes rotated 90°/180°. We OCR the upright image
+ * first; if it doesn't read well (few fields, low confidence) we try the other
+ * three orientations and keep whichever recognizes best. The chosen rotation
+ * (a counter-clockwise jimp angle) is returned so the caller can show and save
+ * the page upright.
+ *
  * @param {Buffer} imageBuffer
- * @returns {Promise<{text: string, confidence: number}>}
+ * @returns {Promise<{text: string, confidence: number, rotation: number}>}
  */
 async function ocrImage(imageBuffer) {
   const worker = await getWorker();
-  const { data } = await worker.recognize(imageBuffer);
-  return { text: data.text || '', confidence: data.confidence || 0 };
+
+  const at0 = await recognizeScored(worker, imageBuffer, 0);
+  if (at0.fields >= 2 || at0.confidence >= 68) {
+    return { text: at0.text, confidence: at0.confidence, rotation: 0 };
+  }
+
+  let best = at0;
+  for (const deg of [90, 180, 270]) {
+    const r = await recognizeScored(worker, imageBuffer, deg);
+    if (r.score > best.score) best = r;
+  }
+  return { text: best.text, confidence: best.confidence, rotation: best.rotation };
+}
+
+/** Convert the chosen jimp (CCW) angle to a PDF /Rotate (CW) angle. */
+function jimpToPdfRotation(jimpDeg) {
+  return (360 - (jimpDeg || 0)) % 360;
 }
 
 async function terminate() {
@@ -104,4 +146,4 @@ async function terminate() {
   }
 }
 
-module.exports = { ocrImage, terminate };
+module.exports = { ocrImage, rotateBuffer, jimpToPdfRotation, terminate };

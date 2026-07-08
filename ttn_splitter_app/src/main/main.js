@@ -5,7 +5,7 @@ const fs = require('fs/promises');
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 
 const { renderPagesToImages, renderSinglePage, splitPage } = require('./pdf');
-const { ocrImage, terminate: terminateOcr } = require('./ocr');
+const { ocrImage, rotateBuffer, jimpToPdfRotation, terminate: terminateOcr } = require('./ocr');
 const { extractWithClaude } = require('./ai');
 const { extract, makeFilename } = require('./extract');
 const { getSettings, setSettings } = require('./settings');
@@ -13,6 +13,8 @@ const { getSettings, setSettings } = require('./settings');
 let mainWindow = null;
 // In-memory map of jobId -> parsed pages, so "Save" can act on reviewed data.
 const jobs = new Map();
+// Set when the user hits "Start over" mid-processing; the run loop checks it.
+let cancelRequested = false;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -133,8 +135,9 @@ ipcMain.handle('output:pickDir', async () => {
 ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
 
 // High-resolution image of a single page, rendered on demand for the zoom view.
-ipcMain.handle('page:image', async (_e, { filePath, pageIndex }) => {
-  const png = await renderSinglePage(filePath, pageIndex);
+ipcMain.handle('page:image', async (_e, { filePath, pageIndex, rotation }) => {
+  let png = await renderSinglePage(filePath, pageIndex);
+  if (rotation) png = await rotateBuffer(png, rotation);
   return `data:image/png;base64,${png.toString('base64')}`;
 });
 
@@ -162,16 +165,20 @@ async function thumbnail(pngBuffer, maxWidth = 520) {
   }
 }
 
+ipcMain.handle('process:cancel', () => { cancelRequested = true; });
+
 ipcMain.handle('process:start', async (_e, filePaths) => {
   const jobId = `job_${Date.now()}`;
   const settings = getSettings();
   const pages = [];
   jobs.set(jobId, pages);
+  cancelRequested = false;
 
   // Count total pages up front for progress.
   let totalPages = 0;
   const perFileImages = [];
   for (const filePath of filePaths) {
+    if (cancelRequested) return { jobId, cancelled: true };
     try {
       const images = await renderPagesToImages(filePath);
       perFileImages.push({ filePath, images });
@@ -185,18 +192,24 @@ ipcMain.handle('process:start', async (_e, filePaths) => {
   let done = 0;
   for (const { filePath, images } of perFileImages) {
     for (let i = 0; i < images.length; i++) {
+      if (cancelRequested) return { jobId, cancelled: true };
       const png = images[i];
       const pageId = `${jobId}:${pages.length}`;
       let result;
       let ocrText = '';
+      let rotation = 0;
+      let displayPng = png;
       try {
         const ocr = await ocrImage(png);
         ocrText = ocr.text;
+        rotation = ocr.rotation || 0;
+        // Upright image for display (thumbnail/zoom) and for the AI fallback.
+        displayPng = rotation ? await rotateBuffer(png, rotation) : png;
         result = extract(ocrText);
 
         if (shouldUseAi(settings, result.confidence)) {
           try {
-            const ai = await extractWithClaude(png, {
+            const ai = await extractWithClaude(displayPng, {
               apiKey: settings.apiKey,
               model: settings.model,
             });
@@ -233,12 +246,13 @@ ipcMain.handle('process:start', async (_e, filePaths) => {
         filePath,
         fileName: path.basename(filePath),
         pageIndex: i,
+        rotation,
         ...result,
         ocrText,
       };
       pages.push(record);
 
-      const thumb = await thumbnail(png);
+      const thumb = await thumbnail(displayPng);
       done += 1;
       send('process:page', { jobId, done, ...record, thumb });
     }
@@ -287,7 +301,9 @@ ipcMain.handle('process:save', async (_e, { jobId, outputDir, edits }) => {
     const finalName = dedupe(desired, used);
     const outPath = path.join(outputDir, finalName);
     try {
-      await splitPage(page.filePath, page.pageIndex, outPath);
+      // Save the page upright if we auto-rotated it for reading.
+      const pdfRotation = jimpToPdfRotation(page.rotation || 0);
+      await splitPage(page.filePath, page.pageIndex, outPath, pdfRotation);
       results.push({ pageId: page.pageId, outPath, name: finalName, ok: true });
     } catch (err) {
       results.push({
