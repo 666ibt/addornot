@@ -6,6 +6,7 @@ const { contextBridge, ipcRenderer } = require('electron');
  * Safe, minimal bridge between the renderer (UI) and the main process.
  * No Node APIs are exposed directly to the page.
  */
+try {
 contextBridge.exposeInMainWorld('api', {
   // settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -34,3 +35,7 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener(channel, listener);
   },
 });
+  console.log('[preload] api bridge exposed');
+} catch (err) {
+  console.error('[preload] failed to expose api bridge:', err);
+}

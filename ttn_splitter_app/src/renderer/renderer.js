@@ -3,6 +3,24 @@
 /* global window, document */
 const api = window.api;
 
+// Make any uncaught error visible on screen instead of silently killing the UI.
+function showFatal(message) {
+  let el = document.getElementById('fatalBanner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'fatalBanner';
+    el.style.cssText =
+      'position:fixed;top:0;left:0;right:0;z-index:9999;background:#7f1d1d;color:#fff;' +
+      'padding:10px 16px;font:13px system-ui;white-space:pre-wrap;';
+    (document.body || document.documentElement).appendChild(el);
+  }
+  el.textContent = '⚠ ' + message;
+}
+window.addEventListener('error', (e) =>
+  showFatal('Ошибка интерфейса: ' + (e.message || e.error)));
+window.addEventListener('unhandledrejection', (e) =>
+  showFatal('Ошибка: ' + (e.reason && (e.reason.message || e.reason))));
+
 const state = {
   jobId: null,
   outputDir: '',
@@ -52,29 +70,31 @@ async function startProcessing(filePaths) {
   }
 }
 
-api.on('process:meta', (p) => {
-  state.jobId = p.jobId;
-  state.total += p.totalPages;
-  updateProgress();
-});
+function registerEvents() {
+  api.on('process:meta', (p) => {
+    state.jobId = p.jobId;
+    state.total += p.totalPages;
+    updateProgress();
+  });
 
-api.on('process:error', (p) => {
-  toast(`Не удалось прочитать ${p.filePath}: ${p.message}`, 'err');
-});
+  api.on('process:error', (p) => {
+    toast(`Не удалось прочитать ${p.filePath}: ${p.message}`, 'err');
+  });
 
-api.on('process:page', (p) => {
-  state.pages.set(p.pageId, { ...p, editNak: p.nakladnaya, editDog: p.dogovor });
-  state.done = p.done;
-  renderCard(p.pageId);
-  updateProgress();
-});
+  api.on('process:page', (p) => {
+    state.pages.set(p.pageId, { ...p, editNak: p.nakladnaya, editDog: p.dogovor });
+    state.done = p.done;
+    renderCard(p.pageId);
+    updateProgress();
+  });
 
-api.on('process:complete', () => {
-  state.processing = false;
-  $('progressWrap').classList.add('hidden');
-  updateSaveButton();
-  toast('Распознавание завершено. Проверьте значения и сохраните.', 'ok');
-});
+  api.on('process:complete', () => {
+    state.processing = false;
+    $('progressWrap').classList.add('hidden');
+    updateSaveButton();
+    toast('Распознавание завершено. Проверьте значения и сохраните.', 'ok');
+  });
+}
 
 function updateProgress() {
   const pct = state.total ? Math.round((state.done / state.total) * 100) : 0;
@@ -223,6 +243,16 @@ function wireDropzone() {
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
+  // If the preload bridge is missing, tell the user plainly rather than
+  // leaving dead buttons.
+  if (!api || typeof api.on !== 'function') {
+    showFatal(
+      'Приложение не инициализировалось (мост preload недоступен). ' +
+      'Переустановите/обновите приложение до последней версии.');
+    return;
+  }
+
+  // Wire the UI first, so buttons work even if a later step fails.
   wireDropzone();
   $('pickBtn').addEventListener('click', pickFiles);
   $('addMoreBtn').addEventListener('click', pickFiles);
@@ -232,10 +262,16 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('settingsSave').addEventListener('click', saveSettings);
   $('settingsCancel').addEventListener('click', () => $('settingsModal').classList.add('hidden'));
 
-  const s = await api.getSettings();
-  if (s.lastOutputDir) {
-    state.outputDir = s.lastOutputDir;
-    $('outDirLabel').textContent = s.lastOutputDir;
-    $('outDirLabel').classList.remove('muted');
+  registerEvents();
+
+  try {
+    const s = await api.getSettings();
+    if (s && s.lastOutputDir) {
+      state.outputDir = s.lastOutputDir;
+      $('outDirLabel').textContent = s.lastOutputDir;
+      $('outDirLabel').classList.remove('muted');
+    }
+  } catch (err) {
+    showFatal('Не удалось загрузить настройки: ' + (err.message || err));
   }
 });

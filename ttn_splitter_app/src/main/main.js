@@ -26,10 +26,16 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Run the preload with full Node so the contextBridge reliably exposes
+      // `window.api` in packaged builds.
+      sandbox: false,
     },
   });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+
+  // Open DevTools when launched with TTN_DEBUG=1 (for diagnosing issues).
+  if (process.env.TTN_DEBUG) mainWindow.webContents.openDevTools({ mode: 'detach' });
 }
 
 app.whenReady().then(createWindow);
