@@ -55,6 +55,35 @@ test('strips leading zeros', () => {
   assert.equal(extractNakladnaya('Накладная № 007').value, '7');
 });
 
+// --- FNPZ format: 8-digit накладная + ST contract --------------------------
+test('FNPZ: full 8-digit накладная (not truncated to 6)', () => {
+  assert.equal(
+    extractNakladnaya('Накладная 80130800 на отпуск материалов на сторону').value,
+    '80130800');
+});
+
+test('FNPZ: another 8-digit накладная', () => {
+  assert.equal(
+    extractNakladnaya('Feat Накладная 80130790 на отпуск материалов Ha сторону').value,
+    '80130790');
+});
+
+test('FNPZ: ST contract with -KS suffix', () => {
+  assert.equal(extractDogovor('Кому: "Mig impeks" MCHJ\nST-248/26-KS от 29.06.2026').value,
+    'ST-248/26-KS');
+});
+
+test('FNPZ: ST contract does not grab Доверенность/FNPZ/Segnum', () => {
+  const text = 'Основание: "Segnum" MCHJ № Доверенности: SN/25-353\n'
+    + 'Склад: Цех № 4 FNPZ-2025-0210\nST-252/26-KS от 02.07.2026';
+  assert.equal(extractDogovor(text).value, 'ST-252/26-KS');
+});
+
+test('FNPZ: ST contract -> filename form', () => {
+  assert.equal(makeFilename({ nakladnaya: '80130800', dogovor: 'ST-248/26-KS' }),
+    '80130800_ST-248-26-KS.pdf');
+});
+
 // --- format detection ------------------------------------------------------
 test('detects TTN form', () => {
   assert.equal(detectFormat('Товарно-транспортная накладная (форма 1-т)'), 'TTN');
