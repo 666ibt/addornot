@@ -32,13 +32,63 @@ function createWindow() {
     },
   });
   mainWindow.setMenuBarVisibility(false);
-  mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
-  // Open DevTools when launched with TTN_DEBUG=1 (for diagnosing issues).
-  if (process.env.TTN_DEBUG) mainWindow.webContents.openDevTools({ mode: 'detach' });
+  attachDiagnostics(mainWindow);
+
+  mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
+    .catch((err) => reportStartupError('loadFile failed', err));
+
+  // Diagnostic build: always open DevTools so any error is visible.
+  if (DEBUG_BUILD || process.env.TTN_DEBUG) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
 }
 
-app.whenReady().then(createWindow);
+// --- diagnostics -----------------------------------------------------------
+// Flip to false for a clean release once the issue is understood.
+const DEBUG_BUILD = true;
+
+function logLine(msg) {
+  try {
+    const p = path.join(app.getPath('userData'), 'ttn-debug.log');
+    require('fs').appendFileSync(p, `[${new Date().toISOString()}] ${msg}\n`);
+  } catch (_) { /* ignore */ }
+}
+
+function reportStartupError(where, err) {
+  const message = `${where}: ${err && (err.stack || err.message || err)}`;
+  logLine(message);
+  try { dialog.showErrorBox('TTN Splitter — ошибка запуска', message); } catch (_) {}
+}
+
+function attachDiagnostics(win) {
+  const wc = win.webContents;
+  wc.on('preload-error', (_e, preloadPath, error) =>
+    reportStartupError(`preload-error (${preloadPath})`, error));
+  wc.on('did-fail-load', (_e, code, desc, url) =>
+    reportStartupError('did-fail-load', new Error(`${code} ${desc} @ ${url}`)));
+  wc.on('render-process-gone', (_e, details) =>
+    reportStartupError('render-process-gone', new Error(JSON.stringify(details))));
+  let shownRendererError = false;
+  wc.on('console-message', (_e, level, message, line, sourceId) => {
+    if (level >= 2) { // 2 = warning, 3 = error
+      logLine(`renderer console[${level}] ${message} (${sourceId}:${line})`);
+    }
+    if (level >= 3 && !shownRendererError) {
+      shownRendererError = true;
+      try {
+        dialog.showErrorBox('TTN Splitter — ошибка интерфейса',
+          `${message}\n\n(${sourceId}:${line})`);
+      } catch (_) {}
+    }
+  });
+}
+
+process.on('uncaughtException', (err) => reportStartupError('uncaughtException (main)', err));
+
+app.whenReady()
+  .then(createWindow)
+  .catch((err) => reportStartupError('app.whenReady', err));
 
 app.on('window-all-closed', async () => {
   await terminateOcr().catch(() => {});
