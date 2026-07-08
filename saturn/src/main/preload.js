@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   startProcessing: (filePaths) => ipcRenderer.invoke('process:start', filePaths),
   cancel: () => ipcRenderer.invoke('process:cancel'),
   save: (payload) => ipcRenderer.invoke('process:save', payload),
+  saveOne: (payload) => ipcRenderer.invoke('process:saveOne', payload),
 
   // events (main -> renderer)
   on: (channel, cb) => {

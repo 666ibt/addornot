@@ -9,7 +9,7 @@ on:
   push:
     branches: [ "claude/ttn-waybill-splitter-app-pw5ct5" ]
     paths:
-      - "ttn_splitter_app/**"
+      - "saturn/**"
       - ".github/workflows/build-windows.yml"
     tags: [ "v*" ]
   workflow_dispatch:   # lets you run it manually from the Actions tab
@@ -22,7 +22,7 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
-        working-directory: ttn_splitter_app
+        working-directory: saturn
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,34 +44,33 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ttn-waybill-splitter-windows
+          name: saturn-windows
           path: |
-            ttn_splitter_app/release/*.exe
+            saturn/release/*.exe
           if-no-files-found: error
 
       - name: Publish GitHub Release with installer
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.7
-          name: TTN Waybill Splitter v1.0.7
+          tag_name: v1.0.8
+          name: Saturn v1.0.8
           target_commitish: ${{ github.sha }}
-          files: ttn_splitter_app/release/*.exe
+          files: saturn/release/*.exe
           body: |
             Готовое приложение для Windows. Node.js и терминал не требуются.
             Словари распознавания (рус+англ) встроены — работает офлайн,
             интернет не нужен.
 
-            Новое в 1.0.7: автоповорот перевёрнутых сканов (страница сама
-            ставится ровно для распознавания и сохраняется ровной); чтение
-            накладной и договора (SGN) в форме 1-Т; кнопка «Начать заново»
-            всегда доступна и отменяет обработку.
+            Новое в Saturn 1.0.8: устойчивое чтение договора при «слипшемся»
+            слэше (SGN-222/26); сохранение файлов по одному (кнопка на каждой
+            карточке); счётчик файлов внизу; новое имя и логотип.
 
             **Два варианта в разделе Assets ниже:**
 
-            - **`TTN-Waybill-Splitter-1.0.7-portable.exe`** — портативная версия.
+            - **`Saturn-1.0.8-portable.exe`** — портативная версия.
               Ничего не устанавливает: скачал и сразу запустил. Рекомендуется.
-            - **`TTN Waybill Splitter Setup 1.0.7.exe`** — обычный установщик.
+            - **`Saturn Setup 1.0.8.exe`** — обычный установщик.
 
             При первом запуске Windows покажет SmartScreen («Windows защитила
             ваш компьютер») — приложение не подписано платным сертификатом.

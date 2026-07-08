@@ -1,7 +1,7 @@
 {
-  "name": "ttn-waybill-splitter",
-  "version": "1.0.7",
-  "description": "Desktop app that splits multi-page PDF scans of fuel/ГСМ waybills (ТТН) into one PDF per page, named {накладная}_{договор}.pdf.",
+  "name": "saturn",
+  "version": "1.0.8",
+  "description": "Saturn — desktop app that splits multi-page PDF scans of fuel/ГСМ waybills (ТТН) into one PDF per page, named {накладная}_{договор}.pdf.",
   "author": "addornot",
   "license": "MIT",
   "main": "src/main/main.js",
@@ -25,8 +25,8 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.addornot.ttnsplitter",
-    "productName": "TTN Waybill Splitter",
+    "appId": "com.addornot.saturn",
+    "productName": "Saturn",
     "files": [
       "src/**/*",
       "assets/**/*",
@@ -58,7 +58,7 @@
       ]
     },
     "portable": {
-      "artifactName": "TTN-Waybill-Splitter-${version}-portable.exe"
+      "artifactName": "Saturn-${version}-portable.exe"
     },
     "mac": {
       "target": [

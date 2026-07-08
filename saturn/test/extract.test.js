@@ -38,6 +38,14 @@ test('OCR-noisy SGN (5GN / letter О)', () => {
   assert.equal(extractDogovor('5GN-2/25').value, 'SGN-2/25');
 });
 
+test('SGN with slash misread as 1 (SGN-222126 -> SGN-222/26)', () => {
+  assert.equal(extractDogovor('Основание SGN-222126 от 03.07.2026').value, 'SGN-222/26');
+});
+
+test('SGN slash-as-1 with 2-digit number', () => {
+  assert.equal(extractDogovor('SGN-59126-P').value, 'SGN-59/26-P');
+});
+
 // --- накладная (invoice number) -------------------------------------------
 test('накладная number after №', () => {
   assert.equal(extractNakladnaya('Товарно-транспортная накладная № 37').value, '37');

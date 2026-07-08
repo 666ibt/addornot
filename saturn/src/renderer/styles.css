@@ -35,7 +35,8 @@ code { background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-si
   background: var(--panel);
 }
 .brand { display: flex; align-items: center; gap: 14px; }
-.logo { font-size: 30px; }
+.logo { display: inline-flex; align-items: center; justify-content: center; }
+.logo svg { display: block; }
 .topbar h1 { margin: 0; font-size: 17px; }
 .sub { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
 
@@ -106,6 +107,20 @@ button.ghost:hover { border-color: #3a4552; }
 .src { color: var(--muted); font-size: 11px; }
 .fname { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--text); word-break: break-all; }
 .fname .warn { color: var(--amber); }
+.card .actions { display: flex; justify-content: flex-end; }
+.card .save-one {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 7px; padding: 6px 12px; font-size: 12.5px;
+}
+.card .save-one:hover { border-color: var(--accent); color: #fff; }
+.card.saved .save-one { border-color: var(--green); color: var(--green); }
+
+/* Result count footer */
+.result-count {
+  margin-top: 18px; padding: 12px 16px; text-align: center;
+  color: var(--muted); font-size: 13px; border-top: 1px solid var(--border);
+}
+.result-count b { color: var(--text); }
 
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 600; }
 .badge.high { background: rgba(52,211,153,.15); color: var(--green); }

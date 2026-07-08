@@ -22,7 +22,7 @@ function createWindow() {
     height: 820,
     minWidth: 900,
     minHeight: 600,
-    title: 'TTN Waybill Splitter',
+    title: 'Saturn',
     backgroundColor: '#0f1216',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -317,6 +317,22 @@ ipcMain.handle('process:save', async (_e, { jobId, outputDir, edits }) => {
 
   setSettings({ lastOutputDir: outputDir });
   return { outputDir, results };
+});
+
+// Save a single reviewed page.
+ipcMain.handle('process:saveOne', async (_e, { jobId, pageId, outputDir, nakladnaya, dogovor }) => {
+  const pages = jobs.get(jobId);
+  if (!pages) throw new Error('Задача не найдена (возможно, приложение перезапускалось).');
+  if (!outputDir) throw new Error('Не выбрана папка для сохранения.');
+  const page = pages.find((p) => p.pageId === pageId);
+  if (!page) throw new Error('Страница не найдена.');
+
+  const name = makeFilename({ nakladnaya: nakladnaya ?? page.nakladnaya, dogovor: dogovor ?? page.dogovor });
+  const outPath = path.join(outputDir, name);
+  const pdfRotation = jimpToPdfRotation(page.rotation || 0);
+  await splitPage(page.filePath, page.pageIndex, outPath, pdfRotation);
+  setSettings({ lastOutputDir: outputDir });
+  return { pageId, name, outPath, ok: true };
 });
 
 // ---------------------------------------------------------------------------

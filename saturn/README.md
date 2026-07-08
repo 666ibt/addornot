@@ -1,4 +1,4 @@
-# TTN Waybill Splitter — десктоп-приложение
+# Saturn — десктоп-приложение
 
 Разбивает многостраничные PDF-сканы топливных накладных (ТТН / ГСМ) на
 **по одному PDF на страницу** и называет каждый файл по номеру накладной и
@@ -44,7 +44,7 @@
 ## Запуск в разработке
 
 ```bash
-cd ttn_splitter_app
+cd saturn
 npm install
 npm start
 ```
@@ -100,7 +100,7 @@ npm test
 ## Структура
 
 ```
-ttn_splitter_app/
+saturn/
 ├── package.json
 ├── src/
 │   ├── main/            # процесс Electron (Node)

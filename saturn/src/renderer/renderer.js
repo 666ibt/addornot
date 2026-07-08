@@ -96,6 +96,7 @@ function registerEvents() {
     state.done = p.done;
     renderCard(p.pageId);
     updateProgress();
+    updateResultCount();
   });
 
   api.on('process:complete', (p) => {
@@ -148,6 +149,7 @@ function renderCard(pageId) {
       <div class="fname">→ <span class="name${warn}">${escapeHtml(preview)}</span></div>
       ${rec.aiError ? `<div class="src" style="color:var(--red)">AI: ${escapeHtml(rec.aiError)}</div>` : ''}
       ${rec.error ? `<div class="src" style="color:var(--red)">${escapeHtml(rec.error)}</div>` : ''}
+      <div class="actions"><button class="save-one" data-save>💾 Сохранить этот</button></div>
     </div>`;
 
   card.querySelector('[data-f="nak"]').addEventListener('input', (e) => {
@@ -160,6 +162,8 @@ function renderCard(pageId) {
   });
   const thumb = card.querySelector('.thumb');
   if (thumb) thumb.addEventListener('click', () => openZoom(pageId));
+  const saveBtn = card.querySelector('[data-save]');
+  if (saveBtn) saveBtn.addEventListener('click', () => saveOne(pageId));
 }
 
 function updatePreview(card, rec) {
@@ -256,6 +260,7 @@ function restart() {
   $('progressWrap').classList.add('hidden');
   $('workarea').classList.add('hidden');
   $('dropzone').classList.remove('hidden');
+  updateResultCount();
   updateSaveButton();
 }
 
@@ -285,6 +290,40 @@ async function save() {
   } finally {
     updateSaveButton();
   }
+}
+
+async function saveOne(pageId) {
+  if (!state.outputDir) return toast('Сначала выберите папку вывода.', 'err');
+  const rec = state.pages.get(pageId);
+  if (!rec) return;
+  try {
+    const res = await api.saveOne({
+      jobId: state.jobId, pageId, outputDir: state.outputDir,
+      nakladnaya: rec.editNak, dogovor: rec.editDog,
+    });
+    const card = document.querySelector(`[data-page="${pageId}"]`);
+    if (card) card.classList.add('saved');
+    toast(`Сохранён ${res.name}`, 'ok');
+  } catch (err) {
+    toast(`Ошибка сохранения: ${err.message || err}`, 'err');
+  }
+}
+
+// Russian pluralization for "файл".
+function pluralFiles(n) {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return 'файл';
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return 'файла';
+  return 'файлов';
+}
+
+function updateResultCount() {
+  const n = state.pages.size;
+  const el = $('resultCount');
+  if (!n) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  el.innerHTML = `Итого будет сохранено: <b>${n}</b> ${pluralFiles(n)}`;
 }
 
 // --- settings --------------------------------------------------------------
