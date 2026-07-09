@@ -5,7 +5,7 @@ const fs = require('fs/promises');
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 
 const { renderPagesToImages, renderSinglePage, splitPage } = require('./pdf');
-const { ocrImage, rotateBuffer, jimpToPdfRotation, terminate: terminateOcr } = require('./ocr');
+const { ocrImage, rotateBuffer, jimpToPdfRotation, workerCount, terminate: terminateOcr } = require('./ocr');
 const { extractWithClaude } = require('./ai');
 const { extract, makeFilename } = require('./extract');
 const { getSettings, setSettings } = require('./settings');
@@ -190,78 +190,95 @@ ipcMain.handle('process:start', async (_e, filePaths) => {
   }
   send('process:meta', { jobId, totalPages });
 
-  let done = 0;
+  // Flatten to a list of page tasks with stable indices.
+  const tasks = [];
   for (const { filePath, images } of perFileImages) {
     for (let i = 0; i < images.length; i++) {
-      if (cancelRequested) return { jobId, cancelled: true };
-      const png = images[i];
-      const pageId = `${jobId}:${pages.length}`;
-      let result;
-      let ocrText = '';
-      let rotation = 0;
-      let displayPng = png;
-      try {
-        const ocr = await ocrImage(png);
-        ocrText = ocr.text;
-        rotation = ocr.rotation || 0;
-        // Upright image for display (thumbnail/zoom) and for the AI fallback.
-        displayPng = rotation ? await rotateBuffer(png, rotation) : png;
-        result = extract(ocrText);
-
-        if (shouldUseAi(settings, result.confidence)) {
-          try {
-            const ai = await extractWithClaude(displayPng, {
-              apiKey: settings.apiKey,
-              model: settings.model,
-            });
-            // Merge: prefer AI values when present.
-            const merged = {
-              nakladnaya: ai.nakladnaya || result.nakladnaya,
-              dogovor: ai.dogovor || result.dogovor,
-            };
-            result = {
-              ...result,
-              ...merged,
-              source: 'ai',
-              confidence:
-                merged.nakladnaya && merged.dogovor ? 'high' : result.confidence,
-              filename: makeFilename(merged),
-            };
-          } catch (aiErr) {
-            result.aiError = String(aiErr.message || aiErr);
-          }
-        }
-      } catch (err) {
-        result = {
-          nakladnaya: '',
-          dogovor: '',
-          confidence: 'low',
-          source: 'error',
-          filename: makeFilename({}),
-          error: String(err.message || err),
-        };
-      }
-
-      const record = {
-        pageId,
-        filePath,
-        fileName: path.basename(filePath),
-        pageIndex: i,
-        rotation,
-        ...result,
-        ocrText,
-      };
-      pages.push(record);
-
-      const thumb = await thumbnail(displayPng);
-      done += 1;
-      send('process:page', { jobId, done, ...record, thumb });
+      tasks.push({ filePath, png: images[i], pageIndex: i, index: tasks.length });
     }
   }
+  pages.length = tasks.length; // pre-size so results keep page order
 
+  let done = 0;
+  const processTask = async (task) => {
+    if (cancelRequested) return;
+    const png = task.png;
+    let result;
+    let ocrText = '';
+    let rotation = 0;
+    let displayPng = png;
+    try {
+      const ocr = await ocrImage(png);
+      ocrText = ocr.text;
+      rotation = ocr.rotation || 0;
+      // Upright image for display (thumbnail/zoom) and for the AI fallback.
+      displayPng = rotation ? await rotateBuffer(png, rotation) : png;
+      result = extract(ocrText);
+
+      if (shouldUseAi(settings, result.confidence)) {
+        try {
+          const ai = await extractWithClaude(displayPng, {
+            apiKey: settings.apiKey,
+            model: settings.model,
+          });
+          const merged = {
+            nakladnaya: ai.nakladnaya || result.nakladnaya,
+            dogovor: ai.dogovor || result.dogovor,
+          };
+          result = {
+            ...result,
+            ...merged,
+            source: 'ai',
+            confidence: merged.nakladnaya && merged.dogovor ? 'high' : result.confidence,
+            filename: makeFilename(merged),
+          };
+        } catch (aiErr) {
+          result.aiError = String(aiErr.message || aiErr);
+        }
+      }
+    } catch (err) {
+      result = {
+        nakladnaya: '', dogovor: '', confidence: 'low', source: 'error',
+        filename: makeFilename({}), error: String(err.message || err),
+      };
+    }
+
+    const record = {
+      pageId: `${jobId}:${task.index}`,
+      filePath: task.filePath,
+      fileName: path.basename(task.filePath),
+      pageIndex: task.pageIndex,
+      rotation,
+      ...result,
+      ocrText,
+    };
+    pages[task.index] = record;
+
+    const thumb = await thumbnail(displayPng);
+    if (cancelRequested) return;
+    done += 1;
+    send('process:page', { jobId, done, ...record, thumb });
+  };
+
+  // Run several pages at once so the OCR worker pool stays busy.
+  await runPool(tasks, workerCount(), processTask);
+
+  if (cancelRequested) return { jobId, cancelled: true };
   send('process:complete', { jobId, count: pages.length });
   return { jobId, count: pages.length };
 });
+
+/** Run async `fn` over `items` with a bounded number in flight. */
+async function runPool(items, concurrency, fn) {
+  let next = 0;
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      await fn(item);
+    }
+  });
+  await Promise.all(runners);
+}
 
 // ---------------------------------------------------------------------------
 // IPC: saving
@@ -295,6 +312,7 @@ ipcMain.handle('process:save', async (_e, { jobId, outputDir, edits }) => {
   const results = [];
 
   for (const page of pages) {
+    if (!page) continue;
     const edit = editMap.get(page.pageId) || {};
     const nakladnaya = (edit.nakladnaya ?? page.nakladnaya) || '';
     const dogovor = (edit.dogovor ?? page.dogovor) || '';
@@ -325,7 +343,7 @@ ipcMain.handle('process:saveOne', async (_e, { jobId, pageId, outputDir, nakladn
   const pages = jobs.get(jobId);
   if (!pages) throw new Error('Задача не найдена (возможно, приложение перезапускалось).');
   if (!outputDir) throw new Error('Не выбрана папка для сохранения.');
-  const page = pages.find((p) => p.pageId === pageId);
+  const page = pages.find((p) => p && p.pageId === pageId);
   if (!page) throw new Error('Страница не найдена.');
 
   const name = makeFilename({ nakladnaya: nakladnaya ?? page.nakladnaya, dogovor: dogovor ?? page.dogovor });

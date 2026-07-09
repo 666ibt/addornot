@@ -2,9 +2,10 @@
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const http = require('http');
 const Jimp = require('jimp');
-const { createWorker } = require('tesseract.js');
+const { createWorker, createScheduler } = require('tesseract.js');
 const { extract } = require('./extract');
 
 /**
@@ -22,9 +23,15 @@ const { extract } = require('./extract');
  * the same everywhere — no network, no SSL, no path/scheme quirks.
  */
 
-let workerPromise = null;
+let schedulerPromise = null;
 let server = null;
 let langBase = null;
+
+/** Number of parallel OCR workers (one per core, capped, leaving one free). */
+function workerCount() {
+  const cores = (os.cpus() && os.cpus().length) || 2;
+  return Math.max(1, Math.min(cores - 1, 4));
+}
 
 /** Locate the folder that holds rus/eng .traineddata.gz. */
 function tessdataDir() {
@@ -73,13 +80,22 @@ async function ensureLangServer() {
   return langBase;
 }
 
-async function getWorker() {
-  if (!workerPromise) {
-    const langPath = await ensureLangServer();
-    const opts = langPath ? { langPath, gzip: true, cacheMethod: 'none' } : {};
-    workerPromise = createWorker('rus+eng', 1, opts);
+// A pool of workers so pages (and the 4 orientation checks) run in parallel
+// across CPU cores.
+async function getScheduler() {
+  if (!schedulerPromise) {
+    schedulerPromise = (async () => {
+      const langPath = await ensureLangServer();
+      const opts = langPath ? { langPath, gzip: true, cacheMethod: 'none' } : {};
+      const scheduler = createScheduler();
+      const n = workerCount();
+      const workers = await Promise.all(
+        Array.from({ length: n }, () => createWorker('rus+eng', 1, opts)));
+      workers.forEach((w) => scheduler.addWorker(w));
+      return scheduler;
+    })();
   }
-  return workerPromise;
+  return schedulerPromise;
 }
 
 /** Rotate a PNG buffer counter-clockwise by `deg` (0/90/180/270). */
@@ -90,9 +106,9 @@ async function rotateBuffer(buffer, deg) {
   return img.getBufferAsync(Jimp.MIME_PNG);
 }
 
-async function recognizeScored(worker, buffer, deg) {
+async function recognizeScored(scheduler, buffer, deg) {
   const buf = await rotateBuffer(buffer, deg);
-  const { data } = await worker.recognize(buf);
+  const { data } = await scheduler.addJob('recognize', buf);
   const text = data.text || '';
   const r = extract(text);
   const fields = (r.nakladnaya ? 1 : 0) + (r.dogovor ? 1 : 0);
@@ -105,26 +121,25 @@ async function recognizeScored(worker, buffer, deg) {
  *
  * Scanned waybills are sometimes rotated 90°/180°. We OCR the upright image
  * first; if it doesn't read well (few fields, low confidence) we try the other
- * three orientations and keep whichever recognizes best. The chosen rotation
- * (a counter-clockwise jimp angle) is returned so the caller can show and save
- * the page upright.
+ * three orientations — in parallel across the worker pool — and keep whichever
+ * recognizes best. The chosen rotation (a counter-clockwise jimp angle) is
+ * returned so the caller can show and save the page upright.
  *
  * @param {Buffer} imageBuffer
  * @returns {Promise<{text: string, confidence: number, rotation: number}>}
  */
 async function ocrImage(imageBuffer) {
-  const worker = await getWorker();
+  const scheduler = await getScheduler();
 
-  const at0 = await recognizeScored(worker, imageBuffer, 0);
+  const at0 = await recognizeScored(scheduler, imageBuffer, 0);
   if (at0.fields >= 2 || at0.confidence >= 68) {
     return { text: at0.text, confidence: at0.confidence, rotation: 0 };
   }
 
+  const others = await Promise.all(
+    [90, 180, 270].map((deg) => recognizeScored(scheduler, imageBuffer, deg)));
   let best = at0;
-  for (const deg of [90, 180, 270]) {
-    const r = await recognizeScored(worker, imageBuffer, deg);
-    if (r.score > best.score) best = r;
-  }
+  for (const r of others) if (r.score > best.score) best = r;
   return { text: best.text, confidence: best.confidence, rotation: best.rotation };
 }
 
@@ -134,10 +149,10 @@ function jimpToPdfRotation(jimpDeg) {
 }
 
 async function terminate() {
-  if (workerPromise) {
-    const worker = await workerPromise;
-    await worker.terminate();
-    workerPromise = null;
+  if (schedulerPromise) {
+    const scheduler = await schedulerPromise;
+    await scheduler.terminate(); // terminates all workers in the pool
+    schedulerPromise = null;
   }
   if (server) {
     server.close();
@@ -146,4 +161,4 @@ async function terminate() {
   }
 }
 
-module.exports = { ocrImage, rotateBuffer, jimpToPdfRotation, terminate };
+module.exports = { ocrImage, rotateBuffer, jimpToPdfRotation, workerCount, terminate };

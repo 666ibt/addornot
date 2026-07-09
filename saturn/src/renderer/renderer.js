@@ -115,6 +115,18 @@ function updateProgress() {
 }
 
 // --- cards -----------------------------------------------------------------
+// Pages finish out of order (parallel OCR); keep cards sorted by page index.
+function pageIndexOf(pageId) {
+  const n = parseInt(String(pageId).split(':').pop(), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+function insertCardInOrder(card) {
+  const idx = Number(card.dataset.index);
+  const cards = $('cards');
+  const after = [...cards.children].find((c) => Number(c.dataset.index) > idx);
+  cards.insertBefore(card, after || null);
+}
+
 function renderCard(pageId) {
   const rec = state.pages.get(pageId);
   let card = document.querySelector(`[data-page="${pageId}"]`);
@@ -122,7 +134,8 @@ function renderCard(pageId) {
     card = document.createElement('div');
     card.className = 'card';
     card.dataset.page = pageId;
-    $('cards').appendChild(card);
+    card.dataset.index = String(pageIndexOf(pageId));
+    insertCardInOrder(card);
   }
   const conf = rec.confidence || 'low';
   const confLabel = { high: 'высокая', medium: 'средняя', low: 'низкая' }[conf] || conf;
