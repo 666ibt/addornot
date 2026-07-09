@@ -38,12 +38,17 @@ test('OCR-noisy SGN (5GN / letter О)', () => {
   assert.equal(extractDogovor('5GN-2/25').value, 'SGN-2/25');
 });
 
-test('SGN with slash misread as 1 (SGN-222126 -> SGN-222/26)', () => {
-  assert.equal(extractDogovor('Основание SGN-222126 от 03.07.2026').value, 'SGN-222/26');
+test('SGN mangled to Cyrillic (5С№-211/26-Р -> SGN-211/26-P)', () => {
+  assert.equal(extractDogovor('Основание 5С№-211/26-Р от 25.06.2026').value, 'SGN-211/26-P');
 });
 
-test('SGN slash-as-1 with 2-digit number', () => {
-  assert.equal(extractDogovor('SGN-59126-P').value, 'SGN-59/26-P');
+test('SGN Cyrillic suffix normalized to Latin', () => {
+  assert.equal(extractDogovor('SGN-59/26-Р').value, 'SGN-59/26-P');
+});
+
+test('SGN with mangled slash yields empty, not a wrong split', () => {
+  // "/" OCR'd as "7" ("SGN-211726-P"): better no result than a wrong 21/72.
+  assert.equal(extractDogovor('SGN-211726-P').matched, false);
 });
 
 // --- накладная (invoice number) -------------------------------------------
@@ -57,6 +62,11 @@ test('FNPZ: накладная на отпуск материалов', () => {
 
 test('накладная with N instead of №', () => {
   assert.equal(extractNakladnaya('Накладная N 5').value, '5');
+});
+
+test('накладная when № is OCR-read as "Ne"', () => {
+  assert.equal(
+    extractNakladnaya('ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ Ne 1140 Tu').value, '1140');
 });
 
 test('strips leading zeros', () => {

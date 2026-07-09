@@ -26,7 +26,7 @@ function getMupdf() {
  * @param {number} scale  render scale (higher = better OCR, bigger buffers)
  * @returns {Promise<Buffer[]>}
  */
-async function renderPagesToImages(filePath, scale = 2.5) {
+async function renderPagesToImages(filePath, scale = 3.2) {
   const mupdf = await getMupdf();
   const bytes = await fs.readFile(filePath);
   const doc = mupdf.Document.openDocument(bytes, 'application/pdf');
