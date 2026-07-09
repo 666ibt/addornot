@@ -4,10 +4,14 @@ const path = require('path');
 const fs = require('fs/promises');
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 
-const { renderPagesToImages, renderSinglePage, splitPage } = require('./pdf');
-const { ocrImage, rotateBuffer, jimpToPdfRotation, workerCount, terminate: terminateOcr } = require('./ocr');
+const { renderPagesToImages, renderSinglePage, splitPage, imageToPdf, imagesToPdf } = require('./pdf');
+const {
+  ocrImage, ocrPlain, cropTop, rotateBuffer, jimpToPdfRotation, workerCount,
+  terminate: terminateOcr,
+} = require('./ocr');
 const { extractWithClaude } = require('./ai');
-const { extract, makeFilename } = require('./extract');
+const { extract, makeFilename, sanitizeForFilename } = require('./extract');
+const { parseApproval } = require('./extract-approval');
 const { getSettings, setSettings } = require('./settings');
 
 let mainWindow = null;
@@ -168,12 +172,19 @@ async function thumbnail(pngBuffer, maxWidth = 520) {
 
 ipcMain.handle('process:cancel', () => { cancelRequested = true; });
 
-ipcMain.handle('process:start', async (_e, filePaths) => {
+ipcMain.handle('process:start', async (_e, arg) => {
+  // Back-compat: arg may be an array of paths (defaults to the TTN tool).
+  const filePaths = Array.isArray(arg) ? arg : arg.filePaths;
+  const mode = (Array.isArray(arg) ? 'ttn' : arg.mode) || 'ttn';
   const jobId = `job_${Date.now()}`;
   const settings = getSettings();
   const pages = [];
   jobs.set(jobId, pages);
   cancelRequested = false;
+
+  // Render scale by tool: TTN needs high res; the approval header is larger so
+  // a lower scale is enough and much faster; the splitter only needs a preview.
+  const renderScale = mode === 'ttn' ? 3.2 : mode === 'approval' ? 2.6 : 1.6;
 
   // Count total pages up front for progress.
   let totalPages = 0;
@@ -181,7 +192,7 @@ ipcMain.handle('process:start', async (_e, filePaths) => {
   for (const filePath of filePaths) {
     if (cancelRequested) return { jobId, cancelled: true };
     try {
-      const images = await renderPagesToImages(filePath);
+      const images = await renderPagesToImages(filePath, renderScale);
       perFileImages.push({ filePath, images });
       totalPages += images.length;
     } catch (err) {
@@ -203,44 +214,55 @@ ipcMain.handle('process:start', async (_e, filePaths) => {
   const processTask = async (task) => {
     if (cancelRequested) return;
     const png = task.png;
-    let result;
-    let ocrText = '';
+    let fields = {};
     let rotation = 0;
     let displayPng = png;
+    let ocrText = '';
     try {
-      const ocr = await ocrImage(png);
-      ocrText = ocr.text;
-      rotation = ocr.rotation || 0;
-      // Upright image for display (thumbnail/zoom) and for the AI fallback.
-      displayPng = rotation ? await rotateBuffer(png, rotation) : png;
-      result = extract(ocrText);
-
-      if (shouldUseAi(settings, result.confidence)) {
-        try {
-          const ai = await extractWithClaude(displayPng, {
-            apiKey: settings.apiKey,
-            model: settings.model,
-          });
-          const merged = {
-            nakladnaya: ai.nakladnaya || result.nakladnaya,
-            dogovor: ai.dogovor || result.dogovor,
-          };
-          result = {
-            ...result,
-            ...merged,
-            source: 'ai',
-            confidence: merged.nakladnaya && merged.dogovor ? 'high' : result.confidence,
-            filename: makeFilename(merged),
-          };
-        } catch (aiErr) {
-          result.aiError = String(aiErr.message || aiErr);
+      if (mode === 'split') {
+        // No OCR — just split and name by page.
+        const base = path.basename(task.filePath, path.extname(task.filePath));
+        fields = { name: `${base}_splitted_${task.pageIndex + 1}.pdf`, confidence: 'high', source: 'split' };
+      } else if (mode === 'approval') {
+        const top = await cropTop(png, 0.45);
+        const ocr = await ocrPlain(top);
+        ocrText = ocr.text;
+        const p = parseApproval(ocrText);
+        fields = {
+          name: p.filename, contract: p.contract, date: p.date,
+          counterparty: p.counterparty, confidence: p.confidence, source: 'ocr',
+        };
+      } else {
+        // TTN: full-page OCR with orientation + extraction (+ optional AI).
+        const ocr = await ocrImage(png);
+        ocrText = ocr.text;
+        rotation = ocr.rotation || 0;
+        displayPng = rotation ? await rotateBuffer(png, rotation) : png;
+        let result = extract(ocrText);
+        if (shouldUseAi(settings, result.confidence)) {
+          try {
+            const ai = await extractWithClaude(displayPng, { apiKey: settings.apiKey, model: settings.model });
+            const merged = {
+              nakladnaya: ai.nakladnaya || result.nakladnaya,
+              dogovor: ai.dogovor || result.dogovor,
+            };
+            result = {
+              ...result, ...merged, source: 'ai',
+              confidence: merged.nakladnaya && merged.dogovor ? 'high' : result.confidence,
+              filename: makeFilename(merged),
+            };
+          } catch (aiErr) {
+            result.aiError = String(aiErr.message || aiErr);
+          }
         }
+        fields = {
+          nakladnaya: result.nakladnaya, dogovor: result.dogovor,
+          confidence: result.confidence, source: result.source,
+          name: result.filename, aiError: result.aiError,
+        };
       }
     } catch (err) {
-      result = {
-        nakladnaya: '', dogovor: '', confidence: 'low', source: 'error',
-        filename: makeFilename({}), error: String(err.message || err),
-      };
+      fields = { confidence: 'low', source: 'error', name: '', error: String(err.message || err) };
     }
 
     const record = {
@@ -249,7 +271,8 @@ ipcMain.handle('process:start', async (_e, filePaths) => {
       fileName: path.basename(task.filePath),
       pageIndex: task.pageIndex,
       rotation,
-      ...result,
+      mode,
+      ...fields,
       ocrText,
     };
     pages[task.index] = record;
@@ -302,6 +325,13 @@ function dedupe(name, used) {
   return candidate;
 }
 
+/** Sanitize a user-supplied filename and ensure a .pdf extension. */
+function ensurePdfName(name) {
+  let n = sanitizeForFilename(name || '') || 'NA';
+  if (!/\.pdf$/i.test(n)) n += '.pdf';
+  return n;
+}
+
 ipcMain.handle('process:save', async (_e, { jobId, outputDir, edits }) => {
   const pages = jobs.get(jobId);
   if (!pages) throw new Error('Задача не найдена (возможно, приложение перезапускалось).');
@@ -314,23 +344,14 @@ ipcMain.handle('process:save', async (_e, { jobId, outputDir, edits }) => {
   for (const page of pages) {
     if (!page) continue;
     const edit = editMap.get(page.pageId) || {};
-    const nakladnaya = (edit.nakladnaya ?? page.nakladnaya) || '';
-    const dogovor = (edit.dogovor ?? page.dogovor) || '';
-    const desired = makeFilename({ nakladnaya, dogovor });
-    const finalName = dedupe(desired, used);
+    const finalName = dedupe(ensurePdfName(edit.name ?? page.name), used);
     const outPath = path.join(outputDir, finalName);
     try {
-      // Save the page upright if we auto-rotated it for reading.
       const pdfRotation = jimpToPdfRotation(page.rotation || 0);
       await splitPage(page.filePath, page.pageIndex, outPath, pdfRotation);
       results.push({ pageId: page.pageId, outPath, name: finalName, ok: true });
     } catch (err) {
-      results.push({
-        pageId: page.pageId,
-        name: finalName,
-        ok: false,
-        error: String(err.message || err),
-      });
+      results.push({ pageId: page.pageId, name: finalName, ok: false, error: String(err.message || err) });
     }
   }
 
@@ -339,19 +360,75 @@ ipcMain.handle('process:save', async (_e, { jobId, outputDir, edits }) => {
 });
 
 // Save a single reviewed page.
-ipcMain.handle('process:saveOne', async (_e, { jobId, pageId, outputDir, nakladnaya, dogovor }) => {
+ipcMain.handle('process:saveOne', async (_e, { jobId, pageId, outputDir, name }) => {
   const pages = jobs.get(jobId);
   if (!pages) throw new Error('Задача не найдена (возможно, приложение перезапускалось).');
   if (!outputDir) throw new Error('Не выбрана папка для сохранения.');
   const page = pages.find((p) => p && p.pageId === pageId);
   if (!page) throw new Error('Страница не найдена.');
 
-  const name = makeFilename({ nakladnaya: nakladnaya ?? page.nakladnaya, dogovor: dogovor ?? page.dogovor });
-  const outPath = path.join(outputDir, name);
+  const finalName = ensurePdfName(name ?? page.name);
+  const outPath = path.join(outputDir, finalName);
   const pdfRotation = jimpToPdfRotation(page.rotation || 0);
   await splitPage(page.filePath, page.pageIndex, outPath, pdfRotation);
   setSettings({ lastOutputDir: outputDir });
-  return { pageId, name, outPath, ok: true };
+  return { pageId, name: finalName, outPath, ok: true };
+});
+
+// ---------------------------------------------------------------------------
+// IPC: Image -> PDF tool
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('img:pick', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Выберите изображения (JPG, PNG)',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Изображения', extensions: ['jpg', 'jpeg', 'png'] }],
+  });
+  if (res.canceled) return [];
+  // Return a small preview + default name for each image.
+  const out = [];
+  for (const filePath of res.filePaths) {
+    let thumb = '';
+    try {
+      const Jimp = require('jimp');
+      const img = await Jimp.read(filePath);
+      if (img.bitmap.width > 400) img.resize(400, Jimp.AUTO);
+      thumb = `data:image/jpeg;base64,${(await img.quality(70).getBufferAsync(Jimp.MIME_JPEG)).toString('base64')}`;
+    } catch (_) { /* ignore preview failure */ }
+    out.push({ filePath, fileName: path.basename(filePath), thumb });
+  }
+  return out;
+});
+
+ipcMain.handle('img:save', async (_e, { images, mode, outputDir, combinedName }) => {
+  if (!outputDir) throw new Error('Не выбрана папка для сохранения.');
+  if (!images || !images.length) throw new Error('Нет изображений.');
+  const used = new Set();
+
+  if (mode === 'one') {
+    const name = dedupe(ensurePdfName(combinedName || 'photos'), used);
+    const outPath = path.join(outputDir, name);
+    await imagesToPdf(images.map((i) => i.filePath), outPath);
+    setSettings({ lastOutputDir: outputDir });
+    return { outputDir, results: [{ name, outPath, ok: true }] };
+  }
+
+  // one PDF per image
+  const results = [];
+  for (const im of images) {
+    const base = im.name || path.basename(im.filePath, path.extname(im.filePath));
+    const name = dedupe(ensurePdfName(base), used);
+    const outPath = path.join(outputDir, name);
+    try {
+      await imageToPdf(im.filePath, outPath);
+      results.push({ filePath: im.filePath, name, outPath, ok: true });
+    } catch (err) {
+      results.push({ filePath: im.filePath, name, ok: false, error: String(err.message || err) });
+    }
+  }
+  setSettings({ lastOutputDir: outputDir });
+  return { outputDir, results };
 });
 
 // ---------------------------------------------------------------------------

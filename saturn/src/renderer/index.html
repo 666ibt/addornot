@@ -29,42 +29,112 @@
         </span>
         <div>
           <h1 class="wordmark">Saturn</h1>
-          <p class="sub">Разбивка накладных ТТН / ГСМ — по одному PDF на страницу, имя <code>{накладная}_{договор}.pdf</code></p>
+          <p class="sub" id="subTitle">Набор инструментов для документов</p>
         </div>
       </div>
-      <button id="settingsBtn" class="ghost" title="Настройки">⚙ Настройки</button>
+      <div class="topbar-actions">
+        <button id="homeBtn" class="ghost hidden" title="На главную">← На главную</button>
+        <button id="settingsBtn" class="ghost" title="Настройки">⚙ Настройки</button>
+      </div>
     </header>
 
-    <section id="dropzone" class="dropzone">
-      <div class="dz-inner">
-        <div class="dz-icon">📄⬇️</div>
-        <p><b>Перетащите сюда PDF-файлы</b> или</p>
-        <button id="pickBtn" class="primary">Выбрать PDF…</button>
-        <p class="hint">Поддерживаются: Товарно-транспортная накладная (форма 1-т) и «Накладная на отпуск материалов» (ФНПЗ)</p>
+    <!-- Home menu -->
+    <section id="homeView" class="home">
+      <div class="tiles">
+        <button class="tile" data-tool="ttn">
+          <span class="tile-icon">🧾</span>
+          <span class="tile-title">Обработка ТТН</span>
+          <span class="tile-desc">Разбивка накладных ГСМ по страницам, имя <code>{накладная}_{договор}.pdf</code></span>
+        </button>
+        <button class="tile" data-tool="split">
+          <span class="tile-icon">✂️</span>
+          <span class="tile-title">Разделитель PDF</span>
+          <span class="tile-desc">Делит PDF по страницам. Имя по умолчанию <code>{имя}_splitted_1,2,3…</code>, можно переписать</span>
+        </button>
+        <button class="tile" data-tool="img">
+          <span class="tile-icon">🖼️</span>
+          <span class="tile-title">Фото → PDF</span>
+          <span class="tile-desc">JPG/PNG в PDF: объединить в один файл или сделать по одному</span>
+        </button>
+        <button class="tile" data-tool="approval">
+          <span class="tile-icon">🏷️</span>
+          <span class="tile-title">Определитель листов согласования</span>
+          <span class="tile-desc">Читает шапку и переименовывает: <code>Лист согласований к Договору № … от … Контрагент</code></span>
+        </button>
       </div>
     </section>
 
-    <section id="workarea" class="hidden">
-      <div class="toolbar">
-        <button id="restartBtn" class="ghost">↺ Начать заново</button>
-        <div class="spacer"></div>
-        <button id="pickOutBtn" class="ghost">Папка вывода…</button>
-        <button id="saveBtn" class="primary" disabled>💾 Сохранить всё</button>
-      </div>
+    <!-- PDF tools: ttn / split / approval -->
+    <section id="pdfView" class="hidden">
+      <section id="dropzone" class="dropzone">
+        <div class="dz-inner">
+          <div class="dz-icon">📄⬇️</div>
+          <p><b>Перетащите сюда PDF-файлы</b> или</p>
+          <button id="pickBtn" class="primary">Выбрать PDF…</button>
+          <p class="hint" id="dzHint"></p>
+        </div>
+      </section>
 
-      <div class="outdir-row">
-        <span class="outdir-label-caption">Папка вывода:</span>
-        <span id="outDirLabel" class="muted">не выбрана</span>
-      </div>
+      <section id="workarea" class="hidden">
+        <div class="toolbar">
+          <button id="restartBtn" class="ghost">↺ Начать заново</button>
+          <div class="spacer"></div>
+          <button id="pickOutBtn" class="ghost">Папка вывода…</button>
+          <button id="saveBtn" class="primary" disabled>💾 Сохранить всё</button>
+        </div>
 
-      <div id="progressWrap" class="progress hidden">
-        <div class="bar"><div id="progressBar" class="fill"></div></div>
-        <span id="progressText" class="muted"></span>
-      </div>
+        <div class="outdir-row">
+          <span class="outdir-label-caption">Папка вывода:</span>
+          <span id="outDirLabel" class="muted">не выбрана</span>
+        </div>
 
-      <div id="cards" class="cards"></div>
+        <div id="progressWrap" class="progress hidden">
+          <div class="bar"><div id="progressBar" class="fill"></div></div>
+          <span id="progressText" class="muted"></span>
+        </div>
 
-      <div id="resultCount" class="result-count hidden"></div>
+        <div id="cards" class="cards"></div>
+
+        <div id="resultCount" class="result-count hidden"></div>
+      </section>
+    </section>
+
+    <!-- Image -> PDF tool -->
+    <section id="imgView" class="hidden">
+      <section id="imgDrop" class="dropzone">
+        <div class="dz-inner">
+          <div class="dz-icon">🖼️⬇️</div>
+          <p><b>Перетащите сюда фото (JPG, PNG)</b> или</p>
+          <button id="imgPickBtn" class="primary">Выбрать изображения…</button>
+          <p class="hint">Из фотографий будет собран PDF</p>
+        </div>
+      </section>
+
+      <section id="imgArea" class="hidden">
+        <div class="toolbar">
+          <button id="imgRestartBtn" class="ghost">↺ Начать заново</button>
+          <div class="spacer"></div>
+          <div class="seg">
+            <button id="imgModeOne" class="seg-btn active">В один PDF</button>
+            <button id="imgModeEach" class="seg-btn">По одному</button>
+          </div>
+          <button id="imgPickOutBtn" class="ghost">Папка вывода…</button>
+          <button id="imgSaveBtn" class="primary" disabled>💾 Сохранить</button>
+        </div>
+
+        <div class="outdir-row">
+          <span class="outdir-label-caption">Папка вывода:</span>
+          <span id="imgOutDirLabel" class="muted">не выбрана</span>
+        </div>
+
+        <label id="combinedNameRow" class="combined-row">
+          <span>Имя итогового PDF:</span>
+          <input id="combinedName" value="photos" />
+        </label>
+
+        <div id="imgCards" class="cards"></div>
+        <div id="imgCount" class="result-count hidden"></div>
+      </section>
     </section>
 
     <!-- Settings modal -->
@@ -120,14 +190,19 @@
             <img id="zoomImg" alt="страница" />
           </div>
           <div class="zoom-side">
-            <label class="small field">накладная
-              <input id="zoomNak" placeholder="напр. 80130800" />
-            </label>
-            <label class="small field">договор
-              <input id="zoomDog" placeholder="напр. ST-248/26-KS или Перемещение" />
+            <div id="zoomTtnFields">
+              <label class="small field">накладная
+                <input id="zoomNak" placeholder="напр. 80130800" />
+              </label>
+              <label class="small field">договор
+                <input id="zoomDog" placeholder="напр. ST-248/26-KS или Перемещение" />
+              </label>
+            </div>
+            <label id="zoomNameField" class="small field hidden">имя файла
+              <input id="zoomName" placeholder="имя файла" />
             </label>
             <div class="fname">→ <span id="zoomFilename" class="name"></span></div>
-            <p class="zoom-hint muted">Проверьте номера по изображению и при необходимости
+            <p class="zoom-hint muted">Проверьте данные по изображению и при необходимости
               исправьте — изменения сразу применятся к карточке.</p>
           </div>
         </div>

@@ -148,6 +148,21 @@ function jimpToPdfRotation(jimpDeg) {
   return (360 - (jimpDeg || 0)) % 360;
 }
 
+/** Plain OCR of an image buffer (no orientation sweep). */
+async function ocrPlain(imageBuffer) {
+  const scheduler = await getScheduler();
+  const { data } = await scheduler.addJob('recognize', imageBuffer);
+  return { text: data.text || '', confidence: data.confidence || 0 };
+}
+
+/** Crop a PNG buffer to its top fraction (e.g. 0.4 = top 40%). */
+async function cropTop(buffer, frac) {
+  const img = await Jimp.read(buffer);
+  const { width, height } = img.bitmap;
+  img.crop(0, 0, width, Math.round(height * frac));
+  return img.getBufferAsync(Jimp.MIME_PNG);
+}
+
 async function terminate() {
   if (schedulerPromise) {
     const scheduler = await schedulerPromise;
@@ -161,4 +176,6 @@ async function terminate() {
   }
 }
 
-module.exports = { ocrImage, rotateBuffer, jimpToPdfRotation, workerCount, terminate };
+module.exports = {
+  ocrImage, ocrPlain, cropTop, rotateBuffer, jimpToPdfRotation, workerCount, terminate,
+};

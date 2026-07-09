@@ -95,4 +95,44 @@ async function splitPage(filePath, pageIndex, outPath, rotation = 0) {
   return outPath;
 }
 
-module.exports = { renderPagesToImages, renderSinglePage, pageCount, splitPage };
+// ---------------------------------------------------------------------------
+// Image -> PDF
+// ---------------------------------------------------------------------------
+
+async function embedImage(doc, imagePath) {
+  const bytes = await fs.readFile(imagePath);
+  const ext = path.extname(imagePath).toLowerCase();
+  if (ext === '.png') return doc.embedPng(bytes);
+  // .jpg/.jpeg (pdf-lib embeds baseline JPEG)
+  return doc.embedJpg(bytes);
+}
+
+function addImagePage(doc, img) {
+  const page = doc.addPage([img.width, img.height]);
+  page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+}
+
+/** Write one image as a single-page PDF. */
+async function imageToPdf(imagePath, outPath) {
+  const doc = await PDFDocument.create();
+  addImagePage(doc, await embedImage(doc, imagePath));
+  const bytes = await doc.save();
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+  await fs.writeFile(outPath, bytes);
+  return outPath;
+}
+
+/** Combine several images into one multi-page PDF (one image per page). */
+async function imagesToPdf(imagePaths, outPath) {
+  const doc = await PDFDocument.create();
+  for (const p of imagePaths) addImagePage(doc, await embedImage(doc, p));
+  const bytes = await doc.save();
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+  await fs.writeFile(outPath, bytes);
+  return outPath;
+}
+
+module.exports = {
+  renderPagesToImages, renderSinglePage, pageCount, splitPage,
+  imageToPdf, imagesToPdf,
+};

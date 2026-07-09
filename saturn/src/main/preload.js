@@ -19,11 +19,15 @@ contextBridge.exposeInMainWorld('api', {
   pageImage: (filePath, pageIndex, rotation) =>
     ipcRenderer.invoke('page:image', { filePath, pageIndex, rotation }),
 
-  // processing
-  startProcessing: (filePaths) => ipcRenderer.invoke('process:start', filePaths),
+  // processing (PDF tools: ttn / split / approval)
+  startProcessing: (filePaths, mode) => ipcRenderer.invoke('process:start', { filePaths, mode }),
   cancel: () => ipcRenderer.invoke('process:cancel'),
   save: (payload) => ipcRenderer.invoke('process:save', payload),
   saveOne: (payload) => ipcRenderer.invoke('process:saveOne', payload),
+
+  // Image -> PDF tool
+  pickImages: () => ipcRenderer.invoke('img:pick'),
+  saveImages: (payload) => ipcRenderer.invoke('img:save', payload),
 
   // events (main -> renderer)
   on: (channel, cb) => {
