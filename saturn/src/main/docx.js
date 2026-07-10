@@ -65,10 +65,14 @@ function rebuild(xml, runs) {
  * Returns { xml, count }.
  */
 function replaceText(xml, from, to, { where = 'all' } = {}) {
-  if (!from) return { xml, count: 0 };
+  if (!from || from === to) return { xml, count: 0 };
   let count = 0;
+  // Safety cap: never loop more than the original number of occurrences, so a
+  // replacement whose `to` re-contains `from` can't spin forever.
+  const cap = where === 'all' ? (documentText(xml).split(from).length - 1) : 1;
   // Re-parse after each hit because run boundaries shift.
   for (;;) {
+    if (count >= cap) break;
     const { runs, concat } = parseRuns(xml);
     const idx = where === 'last' ? concat.lastIndexOf(from) : concat.indexOf(from);
     if (idx < 0) break;

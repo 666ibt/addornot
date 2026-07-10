@@ -35,6 +35,40 @@ function basisUz(basis) {
     : 'ўз Устави асосида ҳаракат қилувчи';
 }
 
+// --- Russian genitive of a product name, for the служебная записка ----------
+// "Бензин АИ-100-К5" -> "бензина марки АИ-100-К5"
+// "Масло индустриальное И12А" -> "индустриального масла марки И12А"
+const isAdj = (w) => /(ое|ее|ый|ой|ий|ая|яя)$/i.test(w);
+function genitive(w) {
+  const l = w.toLowerCase();
+  if (/ое$/.test(l)) return l.replace(/ое$/, 'ого');
+  if (/ее$/.test(l)) return l.replace(/ее$/, 'его');
+  if (/(ый|ой)$/.test(l)) return l.replace(/(ый|ой)$/, 'ого');
+  if (/ий$/.test(l)) return l.replace(/ий$/, 'его');
+  if (/ая$/.test(l)) return l.replace(/ая$/, 'ой');
+  if (/яя$/.test(l)) return l.replace(/яя$/, 'ей');
+  if (/ь$/.test(l)) return l.replace(/ь$/, 'я');
+  if (/о$/.test(l)) return l.replace(/о$/, 'а');
+  if (/а$/.test(l)) return l.replace(/а$/, /[гкхжшщч]а$/.test(l) ? 'и' : 'ы');
+  if (/[бвгдзйклмнпрстфхц]$/.test(l)) return `${l}а`;
+  return l;
+}
+function productPhraseRu(name) {
+  const toks = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!toks.length) return '';
+  let gi = toks.findIndex((t) => /\d/.test(t));
+  if (gi < 0) gi = toks.length;
+  // pull in a preceding all-uppercase abbreviation (e.g. "БНД" of "БНД 60/90")
+  if (gi > 0 && /^[A-ZА-ЯЁ0-9/\-]{2,}$/.test(toks[gi - 1]) && !/[a-zа-яё]/.test(toks[gi - 1])) gi -= 1;
+  const desc = toks.slice(0, gi);
+  const grade = toks.slice(gi).join(' ');
+  const adjs = desc.filter(isAdj).map(genitive);
+  const nouns = desc.filter((w) => !isAdj(w)).map(genitive);
+  const descGen = [...adjs, ...nouns].join(' ');
+  if (!grade) return descGen;
+  return descGen ? `${descGen} марки ${grade}` : `марки ${grade}`;
+}
+
 // --- per-company договор templates ------------------------------------------
 // Baseline strings taken verbatim from the user's real contracts.
 const DOGOVOR = {
@@ -92,6 +126,54 @@ const DOGOVOR = {
 };
 
 const LIST = { file: 'tasco-list.docx', number: '238/26-TASCO', date: '02.06.2026', counter: 'SEG MOTOL' };
+
+const AKCIZ_ON = 'с учетом НДС и акцизного налога на конечного потребителя';
+
+// служебная записка (русский). baselineAkciz — как в образце шаблона.
+const ZAPISKA = {
+  SEGNUM: {
+    file: 'segnum-zapiska.docx',
+    counter: 'SANOAT ENERGETIKA GURUHI',
+    date: '06.07.2026',
+    qty: 'в количестве 2 тонн',
+    price: '18 645 000,00',
+    product: 'бензина марки АИ-100-К5',
+    komu: 'Директору ООО «SEGNUM» Закирову Ш.Ш.',
+    greet: 'Уважаемый Шерзод Шавкатович!',
+    requestNo: '№ 002-0001-1336-2026',
+    baselineAkciz: true,
+  },
+  'SEG TASCO': {
+    file: 'tasco-zapiska.docx',
+    counter: 'SEG MOTOL',
+    date: '02.06.2026',
+    qty: 'в количестве 230 тонн',
+    price: '10 500 000,00',
+    product: 'индустриального масла марки И12А',
+    komu: 'Генеральному директору ООО «SEG TASCO» Шерназарову У.Э.',
+    greet: 'Уважаемый Улугбек Элмурадович!',
+    requestNo: '№ б/н',
+    baselineAkciz: false,
+  },
+};
+
+function zapiskaReplacements(z, d) {
+  const R = [
+    { from: z.counter, to: cleanName(d.counterparty && d.counterparty.name) },
+    { from: z.date, to: dateDots(d.date) },
+    { from: z.qty, to: `в количестве ${d.qty} тонн` },
+    { from: z.price, to: money(d.pricePerTon) },
+    { from: z.product, to: productPhraseRu(d.product) },
+    { from: z.requestNo, to: `№ ${(d.requestNo || 'б/н').trim()}` },
+  ];
+  const a = d.addressee || {};
+  if (a.komu && a.komu !== z.komu) R.push({ from: z.komu, to: a.komu });
+  if (a.greet && a.greet !== z.greet) R.push({ from: z.greet, to: a.greet });
+  // акциз-оговорка: приводим к нужному состоянию (учитывая базовое в шаблоне)
+  if (d.akciz && !z.baselineAkciz) R.push({ from: 'с учетом НДС.', to: `${AKCIZ_ON}.` });
+  if (!d.akciz && z.baselineAkciz) R.push({ from: AKCIZ_ON, to: 'с учетом НДС' });
+  return R;
+}
 
 // --- build the договор replacements -----------------------------------------
 function dogovorReplacements(t, d) {
@@ -155,8 +237,13 @@ function generate(d, templatesDir) {
     files.push({ name: `Лист согласований к Договору № ${numDash(d.number)} от ${dateDots(d.date)} ${cname}.docx`, buffer: listBuf });
   }
 
+  // Служебная записка — обе компании.
+  const z = ZAPISKA[company];
+  const zapiskaBuf = fillDocx(read(z.file), zapiskaReplacements(z, d));
+  files.push({ name: `СЛУЖЕБНАЯ ЗАПИСКА к Договору № ${numDash(d.number)} от ${dateDots(d.date)} ${cname}.docx`, buffer: zapiskaBuf });
+
   const folder = path.join(company, `${seqOf(d.number)}. ${stem}`.trim());
   return { folder, files };
 }
 
-module.exports = { generate, money, DOGOVOR };
+module.exports = { generate, money, productPhraseRu, DOGOVOR };

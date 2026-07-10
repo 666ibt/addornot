@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
-const { generate } = require('../src/main/contract');
+const { generate, productPhraseRu } = require('../src/main/contract');
 const { documentText, readDocumentXml } = require('../src/main/docx');
 
 const TPL = path.join(__dirname, '..', 'templates');
@@ -29,11 +29,12 @@ const tasco = {
   product: 'Битум БНД 60/90', qty: 100, pricePerTon: 8500000, akciz: true,
 };
 
-test('SEGNUM: договор only, no акциз, Uzbek amount, folder layout', () => {
+test('SEGNUM: договор + записка (no лист), no акциз, Uzbek amount, folder layout', () => {
   const r = generate(segnum, TPL);
-  assert.equal(r.files.length, 1, 'SEGNUM has no лист согласования');
+  assert.equal(r.files.length, 2, 'SEGNUM: договор + записка, no лист согласования');
   assert.equal(r.folder, path.join('SEGNUM', '231. Договор № SGN-231-26 от 15.07.2026 E-OIL'));
   assert.equal(r.files[0].name, 'Договор № SGN-231-26 от 15.07.2026 E-OIL.docx');
+  assert.match(r.files[1].name, /^СЛУЖЕБНАЯ ЗАПИСКА к Договору № SGN-231-26 от 15\.07\.2026 E-OIL\.docx$/);
   const t = text(r.files[0].buffer);
   for (const s of ['SGN-231/26', '«15» июль 2026', 'E-OIL', 'Иванов И.И.', 'Дизель Л-0.2-62',
     '12 000 000,00', '600 000 000,00', 'олти юз миллион', 'акциз солиғисиз кўрсатилган',
@@ -44,9 +45,9 @@ test('SEGNUM: договор only, no акциз, Uzbek amount, folder layout', 
   assert.ok(!t.includes('37 290 000,00'), 'baseline sum replaced');
 });
 
-test('SEG TASCO: договор + лист, акциз on, доверенность intro', () => {
+test('SEG TASCO: договор + лист + записка, акциз on, доверенность intro', () => {
   const r = generate(tasco, TPL);
-  assert.equal(r.files.length, 2, 'SEG TASCO adds a лист согласования');
+  assert.equal(r.files.length, 3, 'SEG TASCO: договор + лист + записка');
   const d = text(r.files[0].buffer);
   for (const s of ['ST-260/26-KS', '«03» август 2026', 'FARGONA GAZ', 'Каримов К.К.',
     'ишончнома асосида', 'Битум БНД 60/90', '8 500 000,00', '850 000 000,00',
@@ -59,6 +60,35 @@ test('SEG TASCO: договор + лист, акциз on, довереннос�
   for (const s of ['ST-260/26-KS', '03.08.2026', 'FARGONA GAZ']) {
     assert.ok(l.includes(s), `лист expected «${s}»`);
   }
+});
+
+test('служебная записка: адресат, № запроса, склонение товара, акциз', () => {
+  // SEGNUM: no акциз, custom № запроса
+  const s = generate({ ...segnum, requestNo: '055-2026' }, TPL);
+  const zs = text(s.files[1].buffer);
+  assert.ok(zs.includes('дизеля марки Л-0.2-62'), 'product declined to genitive');
+  assert.ok(zs.includes('в количестве 50 тонн'));
+  assert.ok(zs.includes('№ 055-2026'));
+  assert.ok(!zs.includes('акцизного'), 'акциз clause removed when off');
+
+  // SEG TASCO: акциз on, addressee override → Исполнительному + greeting
+  const t = generate({
+    ...tasco,
+    addressee: { komu: 'Исполнительному директору ООО «SEG TASCO» Закирову Ш.Ш.', greet: 'Уважаемый Шерзод Шавкатович!' },
+  }, TPL);
+  const zt = text(t.files[2].buffer);
+  assert.ok(zt.includes('битума марки БНД 60/90'));
+  assert.ok(zt.includes('Исполнительному директору'));
+  assert.ok(zt.includes('Уважаемый Шерзод Шавкатович!'));
+  assert.ok(!zt.includes('Генеральному'), 'baseline addressee replaced');
+  assert.ok(zt.includes('с учетом НДС и акцизного налога на конечного потребителя'), 'акциз clause added');
+  assert.ok(zt.includes('№ б/н'), 'default request number');
+});
+
+test('productPhraseRu declines common ГСМ names', () => {
+  assert.equal(productPhraseRu('Бензин АИ-100-К5'), 'бензина марки АИ-100-К5');
+  assert.equal(productPhraseRu('Масло индустриальное И12А'), 'индустриального масла марки И12А');
+  assert.equal(productPhraseRu('Битум БНД 60/90'), 'битума марки БНД 60/90');
 });
 
 test('counterparty requisites do not clobber the supplier block', () => {

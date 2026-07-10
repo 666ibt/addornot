@@ -681,6 +681,23 @@ async function dbDelete(rec) {
 // --- contract drafting: Оформление договора --------------------------------
 const cState = { company: 'SEGNUM', contractors: [], products: [], types: {} };
 
+// Адресаты служебной записки (из реальных образцов). Обращение подставляется
+// автоматически по выбранному адресату.
+const ADDRESSEES = {
+  SEGNUM: [
+    { komu: 'Директору ООО «SEGNUM» Закирову Ш.Ш.', greet: 'Уважаемый Шерзод Шавкатович!' },
+  ],
+  'SEG TASCO': [
+    { komu: 'Генеральному директору ООО «SEG TASCO» Шерназарову У.Э.', greet: 'Уважаемый Улугбек Элмурадович!' },
+    { komu: 'Исполнительному директору ООО «SEG TASCO» Закирову Ш.Ш.', greet: 'Уважаемый Шерзод Шавкатович!' },
+  ],
+};
+
+function refreshAddressees() {
+  const list = ADDRESSEES[cState.company] || [];
+  $('cAddressee').innerHTML = list.map((a, i) => `<option value="${i}">${escapeHtml(a.komu)}</option>`).join('');
+}
+
 function groupMoney(n) {
   n = Math.round(Math.abs(Number(n) || 0));
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
@@ -701,6 +718,7 @@ async function openContract() {
   cState.types = all.contractTypes;
   if (!$('cDate').value) $('cDate').value = new Date().toISOString().slice(0, 10);
   refreshContractLists();
+  refreshAddressees();
 }
 
 function renderContractorFields() {
@@ -786,6 +804,8 @@ async function generateContractDocs() {
     pricePerTon: Number(String($('cPrice').value).replace(/\s/g, '').replace(',', '.')),
     qty: Number(String($('cQty').value).replace(/\s/g, '').replace(',', '.')),
     akciz: $('cAkciz').querySelector('.seg-btn.active').dataset.v === 'yes',
+    addressee: (ADDRESSEES[company] || [])[Number($('cAddressee').value) || 0],
+    requestNo: $('cRequestNo').value.trim(),
     outputDir: state.outputDir,
   };
   if (!data.number) return toast('Укажите № договора.', 'err');
@@ -880,6 +900,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       $('cContractorSel').value = '';
       setContractorFields(null);
       refreshContractLists();
+      refreshAddressees();
     }));
   $('cContractorSel').addEventListener('change', (e) => {
     const c = (cState.contractors[cState.company] || []).find((x) => x.id === e.target.value);
