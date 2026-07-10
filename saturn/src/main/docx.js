@@ -58,16 +58,19 @@ function rebuild(xml, runs) {
 }
 
 /**
- * Replace `from` with `to` in the concatenated run text. By default replaces
- * every occurrence. Returns { xml, count }.
+ * Replace `from` with `to` in the concatenated run text.
+ * `where`: 'all' (default), 'first', or 'last'. 'last' is used for counterparty
+ * requisites lines that are byte-identical to the supplier's — the counterparty
+ * («Харидор») block always comes later in the document, so the last hit is it.
+ * Returns { xml, count }.
  */
-function replaceText(xml, from, to, { all = true } = {}) {
+function replaceText(xml, from, to, { where = 'all' } = {}) {
   if (!from) return { xml, count: 0 };
   let count = 0;
   // Re-parse after each hit because run boundaries shift.
   for (;;) {
     const { runs, concat } = parseRuns(xml);
-    const idx = concat.indexOf(from);
+    const idx = where === 'last' ? concat.lastIndexOf(from) : concat.indexOf(from);
     if (idx < 0) break;
     const mStart = idx;
     const mEnd = idx + from.length;
@@ -85,7 +88,7 @@ function replaceText(xml, from, to, { all = true } = {}) {
     }
     xml = rebuild(xml, runs);
     count += 1;
-    if (!all) break;
+    if (where !== 'all') break;
   }
   return { xml, count };
 }
@@ -93,6 +96,40 @@ function replaceText(xml, from, to, { all = true } = {}) {
 /** Full concatenated text of the document (for tests / inspection). */
 function documentText(xml) {
   return parseRuns(xml).concat;
+}
+
+const P_RE = /<w:p\b[^>]*>[\s\S]*?<\/w:p>/g;
+
+/**
+ * Replace whole paragraphs whose entire (trimmed) run text equals `exact`.
+ * Used for table cells that hold a bare value (e.g. the quantity "2"), which
+ * a plain substring search can't target safely. Returns { xml, count }.
+ */
+function replaceParagraphExact(xml, exact, to, { all = true } = {}) {
+  exact = String(exact).trim();
+  if (!exact) return { xml, count: 0 };
+  let count = 0;
+  let out = '';
+  let cursor = 0;
+  let m;
+  P_RE.lastIndex = 0;
+  while ((m = P_RE.exec(xml))) {
+    const pXml = m[0];
+    if ((all || count === 0) && parseRuns(pXml).concat.trim() === exact) {
+      const { runs } = parseRuns(pXml);
+      let first = true;
+      for (const r of runs) {
+        r.inner = first ? String(to) : '';
+        if (first) r.openTag = ensurePreserve(r.openTag);
+        first = false;
+      }
+      out += xml.slice(cursor, m.index) + rebuild(pXml, runs);
+      cursor = P_RE.lastIndex;
+      count += 1;
+    }
+  }
+  out += xml.slice(cursor);
+  return { xml: out, count };
 }
 
 // ---------------------------------------------------------------------------
@@ -110,14 +147,18 @@ function readDocumentXml(buffer) {
 function fillDocx(buffer, replacements, { strict = false } = {}) {
   const zip = new PizZip(buffer);
   let xml = zip.file('word/document.xml').asText();
-  for (const { from, to } of replacements) {
-    if (from == null || from === '') continue;
-    const res = replaceText(xml, from, String(to == null ? '' : to));
-    if (res.count === 0 && strict) throw new Error(`docx: text not found: ${JSON.stringify(from)}`);
+  for (const r of replacements) {
+    const to = String(r.to == null ? '' : r.to);
+    const anchor = r.para != null ? r.para : r.from;
+    if (anchor == null || anchor === '') continue;
+    const res = r.para != null
+      ? replaceParagraphExact(xml, r.para, to)
+      : replaceText(xml, r.from, to, { where: r.where || 'all' });
+    if (res.count === 0 && strict) throw new Error(`docx: text not found: ${JSON.stringify(anchor)}`);
     xml = res.xml;
   }
   zip.file('word/document.xml', xml);
   return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
-module.exports = { replaceText, fillDocx, documentText, readDocumentXml };
+module.exports = { replaceText, replaceParagraphExact, fillDocx, documentText, readDocumentXml };

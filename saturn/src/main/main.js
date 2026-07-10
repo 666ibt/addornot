@@ -14,6 +14,9 @@ const { extract, makeFilename, sanitizeForFilename } = require('./extract');
 const { parseApproval } = require('./extract-approval');
 const { getSettings, setSettings } = require('./settings');
 const db = require('./db');
+const { generate: generateContract } = require('./contract');
+
+const TEMPLATES_DIR = path.join(__dirname, '..', '..', 'templates');
 
 let mainWindow = null;
 // In-memory map of jobId -> parsed pages, so "Save" can act on reviewed data.
@@ -129,6 +132,27 @@ ipcMain.handle('db:deleteProduct', (_e, id) => db.deleteProduct(id));
 ipcMain.handle('db:contractTypes', (_e, c) => db.getContractTypes(c));
 ipcMain.handle('db:addContractType', (_e, { company, type }) => db.addContractType(company, type));
 ipcMain.handle('db:setContractTypes', (_e, { company, types }) => db.setContractTypes(company, types));
+
+// ---------------------------------------------------------------------------
+// IPC: contract drafting (Оформление договора)
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('contract:generate', async (_e, data) => {
+  if (!data.outputDir) throw new Error('Не выбрана папка для сохранения.');
+  // Auto-save manually-entered contractor / product / contract type to the DB.
+  if (data.counterparty && data.counterparty.name) {
+    data.counterparty = db.saveContractor(data.company, data.counterparty);
+  }
+  if (data.product) db.saveProduct({ name: data.product, pricePerTon: data.pricePerTon });
+  if (data.contractType) db.addContractType(data.company, data.contractType);
+
+  const { folder, files } = generateContract(data, TEMPLATES_DIR);
+  const destFolder = path.join(data.outputDir, folder);
+  await fs.mkdir(destFolder, { recursive: true });
+  for (const f of files) await fs.writeFile(path.join(destFolder, f.name), f.buffer);
+  setSettings({ lastOutputDir: data.outputDir });
+  return { folder: destFolder, files: files.map((f) => f.name) };
+});
 
 // ---------------------------------------------------------------------------
 // IPC: file & folder pickers

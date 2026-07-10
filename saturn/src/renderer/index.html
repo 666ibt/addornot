@@ -71,6 +71,72 @@
           <span class="tile-title">Продукты</span>
           <span class="tile-desc">Каталог продукции с ценой за тонну (в сумах)</span>
         </button>
+        <button class="tile" data-tool="contract">
+          <span class="tile-icon">📄</span>
+          <span class="tile-title">Оформление договора</span>
+          <span class="tile-desc">Формирует договор (узб.), лист согласования и служебную записку по шаблонам</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Contract drafting: Оформление договора -->
+    <section id="contractView" class="hidden">
+      <div class="contract-form">
+        <div class="seg" id="cCompany">
+          <button class="seg-btn active" data-company="SEGNUM">SEGNUM</button>
+          <button class="seg-btn" data-company="SEG TASCO">SEG TASCO</button>
+        </div>
+
+        <div class="cf-grid">
+          <label class="field"><span>Вид договора</span>
+            <input id="cType" list="cTypeList" placeholder="напр. SGN-##-## или ##-###-##-KS" />
+            <datalist id="cTypeList"></datalist>
+          </label>
+          <label class="field"><span>№ договора</span>
+            <input id="cNumber" placeholder="напр. SGN-231/26" /></label>
+          <label class="field"><span>Дата заключения</span>
+            <input id="cDate" type="date" /></label>
+          <label class="field"><span>Пункт отгрузки (необязательно)</span>
+            <input id="cShipment" placeholder="оставьте пустым — как в шаблоне" /></label>
+        </div>
+
+        <fieldset class="cf-set">
+          <legend>Контрагент</legend>
+          <label class="field"><span>Выбрать из базы</span>
+            <select id="cContractorSel"><option value="">— ввести вручную —</option></select></label>
+          <div id="cContractorFields" class="cf-grid"></div>
+        </fieldset>
+
+        <fieldset class="cf-set">
+          <legend>Товар и сумма</legend>
+          <label class="field"><span>Выбрать продукт из базы</span>
+            <select id="cProductSel"><option value="">— ввести вручную —</option></select></label>
+          <div class="cf-grid">
+            <label class="field"><span>Наименование</span>
+              <input id="cProduct" placeholder="напр. Бензин АИ-95-К4" /></label>
+            <label class="field"><span>Цена за тонну (сум)</span>
+              <input id="cPrice" inputmode="numeric" placeholder="19 500 000" /></label>
+            <label class="field"><span>Объём (тонн)</span>
+              <input id="cQty" inputmode="numeric" placeholder="200" /></label>
+            <div class="field"><span>Акциз</span>
+              <div class="seg" id="cAkciz">
+                <button class="seg-btn active" data-v="no">Нет</button>
+                <button class="seg-btn" data-v="yes">Да</button>
+              </div>
+            </div>
+          </div>
+          <div id="cSummary" class="cf-summary muted">Итоговая сумма: —</div>
+        </fieldset>
+
+        <div class="toolbar">
+          <button id="cPickOut" class="ghost">Папка вывода…</button>
+          <div class="spacer"></div>
+          <button id="cGenerate" class="primary">📄 Сформировать документы</button>
+        </div>
+        <div class="outdir-row">
+          <span class="outdir-label-caption">Папка вывода:</span>
+          <span id="cOutLabel" class="muted">не выбрана</span>
+        </div>
       </div>
     </section>
 

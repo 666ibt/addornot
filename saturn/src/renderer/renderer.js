@@ -103,6 +103,7 @@ function showHome() {
   $('pdfView').classList.add('hidden');
   $('imgView').classList.add('hidden');
   $('dbView').classList.add('hidden');
+  $('contractView').classList.add('hidden');
   $('homeBtn').classList.add('hidden');
   $('subTitle').textContent = 'Набор инструментов для документов';
 }
@@ -110,6 +111,7 @@ function showHome() {
 function openTool(tool) {
   $('homeView').classList.add('hidden');
   $('dbView').classList.add('hidden');
+  $('contractView').classList.add('hidden');
   $('homeBtn').classList.remove('hidden');
   $('subTitle').textContent = TOOLS[tool].title;
 
@@ -568,7 +570,7 @@ async function openDb(entity) {
   dbState.editId = null;
   $('homeView').classList.add('hidden');
   $('homeBtn').classList.remove('hidden');
-  for (const id of ['pdfView', 'imgView']) $(id).classList.add('hidden');
+  for (const id of ['pdfView', 'imgView', 'contractView']) $(id).classList.add('hidden');
   $('dbView').classList.remove('hidden');
   state.view = 'db';
   $('subTitle').textContent = entity === 'contractors' ? 'Контрагенты' : 'Продукты';
@@ -676,10 +678,143 @@ async function dbDelete(rec) {
   toast('Удалено.', 'ok');
 }
 
+// --- contract drafting: Оформление договора --------------------------------
+const cState = { company: 'SEGNUM', contractors: [], products: [], types: {} };
+
+function groupMoney(n) {
+  n = Math.round(Math.abs(Number(n) || 0));
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+async function openContract() {
+  $('homeView').classList.add('hidden');
+  $('dbView').classList.add('hidden');
+  for (const id of ['pdfView', 'imgView']) $(id).classList.add('hidden');
+  $('homeBtn').classList.remove('hidden');
+  $('contractView').classList.remove('hidden');
+  state.view = 'contract';
+  $('subTitle').textContent = 'Оформление договора';
+  if (!$('cContractorFields').children.length) renderContractorFields();
+  const all = await api.db.all();
+  cState.contractors = all.contractors;
+  cState.products = all.products;
+  cState.types = all.contractTypes;
+  if (!$('cDate').value) $('cDate').value = new Date().toISOString().slice(0, 10);
+  refreshContractLists();
+}
+
+function renderContractorFields() {
+  $('cContractorFields').innerHTML = CONTRACTOR_FIELDS.map((f) => {
+    if (f.type === 'toggle') {
+      return `<div class="field"><span>${f.label}</span><div class="seg" data-cf-toggle="${f.key}">${
+        f.options.map(([val, lbl], i) =>
+          `<button class="seg-btn${i === 0 ? ' active' : ''}" data-val="${val}">${lbl}</button>`).join('')
+      }</div></div>`;
+    }
+    return `<label class="field"><span>${f.label}</span>
+      <input data-cf="${f.key}" placeholder="${escapeHtml(f.ph || '')}" /></label>`;
+  }).join('');
+  $('cContractorFields').querySelectorAll('[data-cf-toggle]').forEach((seg) =>
+    seg.querySelectorAll('.seg-btn').forEach((b) => b.addEventListener('click', () => {
+      seg.querySelectorAll('.seg-btn').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+    })));
+}
+
+function refreshContractLists() {
+  // contractors for the current company
+  const cs = cState.contractors[cState.company] || [];
+  $('cContractorSel').innerHTML = '<option value="">— ввести вручную —</option>'
+    + cs.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+  // products (shared)
+  $('cProductSel').innerHTML = '<option value="">— ввести вручную —</option>'
+    + cState.products.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  // contract types for the company
+  const types = (cState.types && cState.types[cState.company]) || [];
+  $('cTypeList').innerHTML = types.map((t) => `<option value="${escapeHtml(t)}"></option>`).join('');
+}
+
+function setContractorFields(c) {
+  for (const f of CONTRACTOR_FIELDS) {
+    if (f.type === 'toggle') {
+      const val = (c && c[f.key]) || f.options[0][0];
+      $('cContractorFields').querySelectorAll(`[data-cf-toggle="${f.key}"] .seg-btn`).forEach((b) =>
+        b.classList.toggle('active', b.dataset.val === val));
+    } else {
+      const inp = $('cContractorFields').querySelector(`[data-cf="${f.key}"]`);
+      if (inp) inp.value = (c && c[f.key]) || '';
+    }
+  }
+}
+
+function collectContractor() {
+  const c = {};
+  for (const f of CONTRACTOR_FIELDS) {
+    if (f.type === 'toggle') {
+      const active = $('cContractorFields').querySelector(`[data-cf-toggle="${f.key}"] .seg-btn.active`);
+      c[f.key] = active ? active.dataset.val : f.options[0][0];
+    } else {
+      c[f.key] = $('cContractorFields').querySelector(`[data-cf="${f.key}"]`).value.trim();
+    }
+  }
+  const sel = $('cContractorSel').value;
+  if (sel) c.id = sel;
+  return c;
+}
+
+function updateContractSummary() {
+  const qty = Number(String($('cQty').value).replace(/\s/g, '').replace(',', '.'));
+  const price = Number(String($('cPrice').value).replace(/\s/g, '').replace(',', '.'));
+  const el = $('cSummary');
+  if (!qty || !price) { el.textContent = 'Итоговая сумма: —'; return; }
+  const sum = Math.round(qty * price);
+  el.innerHTML = `Итоговая сумма: <b>${groupMoney(sum)},00</b> сум<br>`
+    + `<span class="muted">прописью: ${escapeHtml(api.amountUz(sum))} сўм</span>`;
+}
+
+async function generateContractDocs() {
+  const company = cState.company;
+  const contractor = collectContractor();
+  const data = {
+    company,
+    contractType: $('cType').value.trim(),
+    number: $('cNumber').value.trim(),
+    date: $('cDate').value,
+    shipment: $('cShipment').value.trim(),
+    counterparty: contractor,
+    product: $('cProduct').value.trim(),
+    pricePerTon: Number(String($('cPrice').value).replace(/\s/g, '').replace(',', '.')),
+    qty: Number(String($('cQty').value).replace(/\s/g, '').replace(',', '.')),
+    akciz: $('cAkciz').querySelector('.seg-btn.active').dataset.v === 'yes',
+    outputDir: state.outputDir,
+  };
+  if (!data.number) return toast('Укажите № договора.', 'err');
+  if (!data.date) return toast('Укажите дату заключения.', 'err');
+  if (!contractor.name) return toast('Укажите наименование контрагента.', 'err');
+  if (!data.product) return toast('Укажите наименование товара.', 'err');
+  if (!data.qty || !data.pricePerTon) return toast('Укажите объём и цену за тонну.', 'err');
+  if (!data.outputDir) return toast('Сначала выберите папку вывода.', 'err');
+
+  $('cGenerate').disabled = true;
+  try {
+    const res = await api.generateContract(data);
+    toast(`Готово: ${res.files.length} документ(ов). Папка: ${res.folder}`, 'ok');
+    api.openPath(res.folder);
+    // refresh lists (new autosaved entries)
+    const all = await api.db.all();
+    cState.contractors = all.contractors; cState.products = all.products; cState.types = all.contractTypes;
+    refreshContractLists();
+  } catch (err) {
+    toast(`Ошибка формирования: ${err.message || err}`, 'err');
+  } finally {
+    $('cGenerate').disabled = false;
+  }
+}
+
 // --- output folder (shared) ------------------------------------------------
 function setOutputDir(dir) {
   state.outputDir = dir;
-  for (const id of ['outDirLabel', 'imgOutDirLabel']) {
+  for (const id of ['outDirLabel', 'imgOutDirLabel', 'cOutLabel']) {
     const el = $(id);
     if (el) { el.textContent = dir; el.classList.remove('muted'); }
   }
@@ -731,9 +866,38 @@ window.addEventListener('DOMContentLoaded', async () => {
     t.addEventListener('click', () => {
       const tool = t.dataset.tool;
       if (tool === 'contractors' || tool === 'products') openDb(tool);
+      else if (tool === 'contract') openContract();
       else openTool(tool);
     }));
   $('homeBtn').addEventListener('click', showHome);
+
+  // Contract drafting
+  $('cCompany').querySelectorAll('.seg-btn').forEach((b) =>
+    b.addEventListener('click', () => {
+      $('cCompany').querySelectorAll('.seg-btn').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+      cState.company = b.dataset.company;
+      $('cContractorSel').value = '';
+      setContractorFields(null);
+      refreshContractLists();
+    }));
+  $('cContractorSel').addEventListener('change', (e) => {
+    const c = (cState.contractors[cState.company] || []).find((x) => x.id === e.target.value);
+    setContractorFields(c || null);
+  });
+  $('cProductSel').addEventListener('change', (e) => {
+    const p = cState.products.find((x) => x.id === e.target.value);
+    if (p) { $('cProduct').value = p.name; $('cPrice').value = groupMoney(p.pricePerTon); updateContractSummary(); }
+  });
+  $('cAkciz').querySelectorAll('.seg-btn').forEach((b) =>
+    b.addEventListener('click', () => {
+      $('cAkciz').querySelectorAll('.seg-btn').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+    }));
+  $('cQty').addEventListener('input', updateContractSummary);
+  $('cPrice').addEventListener('input', updateContractSummary);
+  $('cPickOut').addEventListener('click', pickOutput);
+  $('cGenerate').addEventListener('click', generateContractDocs);
 
   // Database screens
   $('dbAddBtn').addEventListener('click', () => openDbEditor(null));

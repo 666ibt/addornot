@@ -1,6 +1,7 @@
 'use strict';
 
 const { contextBridge, ipcRenderer } = require('electron');
+const { integerToWordsUz } = require('./num2words');
 
 /**
  * Safe, minimal bridge between the renderer (UI) and the main process.
@@ -42,6 +43,11 @@ contextBridge.exposeInMainWorld('api', {
     addContractType: (company, type) => ipcRenderer.invoke('db:addContractType', { company, type }),
     setContractTypes: (company, types) => ipcRenderer.invoke('db:setContractTypes', { company, types }),
   },
+
+  // contract drafting
+  generateContract: (data) => ipcRenderer.invoke('contract:generate', data),
+  // сумма прописью (Uzbek Cyrillic) — pure function, no IPC round-trip
+  amountUz: (n) => integerToWordsUz(n),
 
   // events (main -> renderer)
   on: (channel, cb) => {

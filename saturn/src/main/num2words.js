@@ -134,4 +134,31 @@ function integerToWordsUz(value) {
   return parts.join(' ');
 }
 
-module.exports = { integerToWords, amountToWords, integerToWordsUz };
+// ---------------------------------------------------------------------------
+// Dates. The contracts write the month in Russian nominative ("«02» июнь 2026")
+// even in the Uzbek договор; the лист/записка use DD.MM.YYYY.
+// ---------------------------------------------------------------------------
+
+const MONTHS_RU = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль',
+  'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+
+/** Parse 'YYYY-MM-DD' (or a Date) into {d, m, y} with zero-padded day. */
+function ymd(date) {
+  const dt = date instanceof Date ? date : new Date(date);
+  return { d: String(dt.getDate()).padStart(2, '0'), m: dt.getMonth(), y: dt.getFullYear() };
+}
+/** «06» июль 2026 — the договор date phrase (no trailing "й."). */
+function dateContract(date) {
+  const { d, m, y } = ymd(date);
+  return `«${d}» ${MONTHS_RU[m]} ${y}`;
+}
+/** 06.07.2026 — лист/записка date. */
+function dateDots(date) {
+  const { d, m, y } = ymd(date);
+  return `${d}.${String(m + 1).padStart(2, '0')}.${y}`;
+}
+
+module.exports = {
+  integerToWords, amountToWords, integerToWordsUz,
+  MONTHS_RU, dateContract, dateDots,
+};

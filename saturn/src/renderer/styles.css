@@ -243,3 +243,12 @@ button.ghost:hover { border-color: #3a4552; }
 #dbForm { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 #dbForm .field { margin-bottom: 12px; }
 @media (max-width: 560px) { #dbForm { grid-template-columns: 1fr; } }
+
+/* --- contract drafting form --- */
+.contract-form { display: flex; flex-direction: column; gap: 16px; margin-top: 14px; }
+.cf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+@media (max-width: 640px) { .cf-grid { grid-template-columns: 1fr; } }
+.cf-set { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px 2px; margin: 0; }
+.cf-set legend { padding: 0 8px; font-size: 13px; font-weight: 700; color: var(--text); }
+.cf-summary { margin: 6px 2px 12px; font-size: 14px; line-height: 1.6; }
+.cf-summary b { color: var(--text); font-size: 15px; }
