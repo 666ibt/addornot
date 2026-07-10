@@ -91,4 +91,47 @@ function amountToWords(amount, opts = {}) {
   return words;
 }
 
-module.exports = { integerToWords, amountToWords };
+// ---------------------------------------------------------------------------
+// Uzbek (Cyrillic) — used for the contract's spelled-out amount, e.g.
+//   37 290 000  -> "ўттиз етти миллион икки юз тўқсон минг"
+// Uzbek has no gender/plural agreement, so it's a simple concatenation; we use
+// explicit multipliers ("бир юз", "икки юз", …), matching the contracts.
+// ---------------------------------------------------------------------------
+
+const UZ = ['нол', 'бир', 'икки', 'уч', 'тўрт', 'беш', 'олти', 'етти', 'саккиз',
+  'тўққиз', 'ўн', 'ўн бир', 'ўн икки', 'ўн уч', 'ўн тўрт', 'ўн беш', 'ўн олти',
+  'ўн етти', 'ўн саккиз', 'ўн тўққиз'];
+const UZ_TENS = ['', '', 'йигирма', 'ўттиз', 'қирқ', 'эллик', 'олтмиш', 'етмиш',
+  'саксон', 'тўқсон'];
+const UZ_SCALES = ['', 'минг', 'миллион', 'миллиард', 'триллион'];
+
+function uzTriplet(n) {
+  const parts = [];
+  const h = Math.floor(n / 100);
+  const r = n % 100;
+  if (h) parts.push(UZ[h], 'юз');
+  if (r < 20) {
+    if (r) parts.push(UZ[r]);
+  } else {
+    parts.push(UZ_TENS[Math.floor(r / 10)]);
+    if (r % 10) parts.push(UZ[r % 10]);
+  }
+  return parts;
+}
+
+/** Spell out a non-negative integer in Uzbek (Cyrillic). */
+function integerToWordsUz(value) {
+  let n = Math.floor(Math.abs(Number(value) || 0));
+  if (n === 0) return 'нол';
+  const groups = [];
+  while (n > 0) { groups.push(n % 1000); n = Math.floor(n / 1000); }
+  const parts = [];
+  for (let i = groups.length - 1; i >= 0; i--) {
+    if (groups[i] === 0) continue;
+    parts.push(...uzTriplet(groups[i]));
+    if (UZ_SCALES[i]) parts.push(UZ_SCALES[i]);
+  }
+  return parts.join(' ');
+}
+
+module.exports = { integerToWords, amountToWords, integerToWordsUz };
