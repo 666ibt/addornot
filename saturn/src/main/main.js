@@ -13,6 +13,7 @@ const { extractWithClaude } = require('./ai');
 const { extract, makeFilename, sanitizeForFilename } = require('./extract');
 const { parseApproval } = require('./extract-approval');
 const { getSettings, setSettings } = require('./settings');
+const db = require('./db');
 
 let mainWindow = null;
 // In-memory map of jobId -> parsed pages, so "Save" can act on reviewed data.
@@ -113,6 +114,21 @@ app.on('activate', () => {
 
 ipcMain.handle('settings:get', () => getSettings());
 ipcMain.handle('settings:set', (_e, partial) => setSettings(partial));
+
+// ---------------------------------------------------------------------------
+// IPC: contract database (контрагенты / продукты / виды договора)
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('db:all', () => db.getAll());
+ipcMain.handle('db:contractors', (_e, c) => db.getContractors(c));
+ipcMain.handle('db:saveContractor', (_e, { company, data }) => db.saveContractor(company, data));
+ipcMain.handle('db:deleteContractor', (_e, { company, id }) => db.deleteContractor(company, id));
+ipcMain.handle('db:products', () => db.getProducts());
+ipcMain.handle('db:saveProduct', (_e, data) => db.saveProduct(data));
+ipcMain.handle('db:deleteProduct', (_e, id) => db.deleteProduct(id));
+ipcMain.handle('db:contractTypes', (_e, c) => db.getContractTypes(c));
+ipcMain.handle('db:addContractType', (_e, { company, type }) => db.addContractType(company, type));
+ipcMain.handle('db:setContractTypes', (_e, { company, types }) => db.setContractTypes(company, types));
 
 // ---------------------------------------------------------------------------
 // IPC: file & folder pickers

@@ -61,8 +61,44 @@
           <span class="tile-title">Определитель листов согласования</span>
           <span class="tile-desc">Читает шапку и переименовывает: <code>Лист согласований к Договору № … от … Контрагент</code></span>
         </button>
+        <button class="tile" data-tool="contractors">
+          <span class="tile-icon">🏢</span>
+          <span class="tile-title">Контрагенты</span>
+          <span class="tile-desc">База контрагентов по компаниям <code>SEGNUM</code> и <code>SEG TASCO</code>: реквизиты, директор, банк</span>
+        </button>
+        <button class="tile" data-tool="products">
+          <span class="tile-icon">🛢️</span>
+          <span class="tile-title">Продукты</span>
+          <span class="tile-desc">Каталог продукции с ценой за тонну (в сумах)</span>
+        </button>
       </div>
     </section>
+
+    <!-- Database screens: контрагенты / продукты -->
+    <section id="dbView" class="hidden">
+      <div class="toolbar">
+        <div id="dbCompanySwitch" class="seg hidden">
+          <button class="seg-btn active" data-company="SEGNUM">SEGNUM</button>
+          <button class="seg-btn" data-company="SEG TASCO">SEG TASCO</button>
+        </div>
+        <div class="spacer"></div>
+        <button id="dbAddBtn" class="primary">＋ Добавить</button>
+      </div>
+      <div id="dbList" class="db-list"></div>
+      <div id="dbEmpty" class="result-count hidden"></div>
+    </section>
+
+    <!-- DB record editor modal -->
+    <div id="dbModal" class="modal hidden">
+      <div class="modal-card">
+        <h2 id="dbModalTitle">Запись</h2>
+        <div id="dbForm"></div>
+        <div class="modal-actions">
+          <button id="dbCancel" class="ghost">Отмена</button>
+          <button id="dbSave" class="primary">Сохранить</button>
+        </div>
+      </div>
+    </div>
 
     <!-- PDF tools: ttn / split / approval -->
     <section id="pdfView" class="hidden">

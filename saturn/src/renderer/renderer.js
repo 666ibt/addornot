@@ -102,12 +102,14 @@ function showHome() {
   $('homeView').classList.remove('hidden');
   $('pdfView').classList.add('hidden');
   $('imgView').classList.add('hidden');
+  $('dbView').classList.add('hidden');
   $('homeBtn').classList.add('hidden');
   $('subTitle').textContent = 'Набор инструментов для документов';
 }
 
 function openTool(tool) {
   $('homeView').classList.add('hidden');
+  $('dbView').classList.add('hidden');
   $('homeBtn').classList.remove('hidden');
   $('subTitle').textContent = TOOLS[tool].title;
 
@@ -535,6 +537,145 @@ async function saveSettings() {
   toast('Настройки сохранены.', 'ok');
 }
 
+// --- database screens: контрагенты / продукты ------------------------------
+const CONTRACTOR_FIELDS = [
+  { key: 'name', label: 'Название', ph: 'напр. SANOAT ENERGETIKA GURUHI' },
+  { key: 'form', label: 'Форма', ph: 'МЧЖ / ҚК МЧЖ / АЖ …' },
+  { key: 'director', label: 'Директор (ФИО)', ph: 'напр. Смирнов Т.В.' },
+  { key: 'directorTitle', label: 'Должность директора', ph: 'директор / бош директор' },
+  { key: 'directorBasis', label: 'Действует на основании', type: 'toggle',
+    options: [['ustav', 'по уставу'], ['dover', 'по доверенности']] },
+  { key: 'address', label: 'Адрес', ph: 'юридический адрес' },
+  { key: 'bank', label: 'Банк', ph: 'напр. АКБ «Узсаноаткурилишбанк»' },
+  { key: 'account', label: 'Расчётный счёт', ph: '2021 4000 …' },
+  { key: 'mfo', label: 'МФО', ph: '00440' },
+  { key: 'inn', label: 'ИНН (СТИР)', ph: '304936120' },
+  { key: 'oked', label: 'ИФУТ / ОКЭД', ph: 'необязательно' },
+  { key: 'vat', label: 'РКП НДС', ph: '326040004278' },
+  { key: 'phone', label: 'Телефон', ph: '(78) 150-00-57' },
+];
+const PRODUCT_FIELDS = [
+  { key: 'name', label: 'Наименование', ph: 'напр. Бензин АИ-95-К4' },
+  { key: 'pricePerTon', label: 'Цена за тонну (сум)', type: 'number', ph: '19 500 000' },
+];
+
+const dbState = { entity: 'contractors', company: 'SEGNUM', items: [], editId: null };
+
+function fieldsFor() { return dbState.entity === 'contractors' ? CONTRACTOR_FIELDS : PRODUCT_FIELDS; }
+
+async function openDb(entity) {
+  dbState.entity = entity;
+  dbState.editId = null;
+  $('homeView').classList.add('hidden');
+  $('homeBtn').classList.remove('hidden');
+  for (const id of ['pdfView', 'imgView']) $(id).classList.add('hidden');
+  $('dbView').classList.remove('hidden');
+  state.view = 'db';
+  $('subTitle').textContent = entity === 'contractors' ? 'Контрагенты' : 'Продукты';
+  $('dbCompanySwitch').classList.toggle('hidden', entity !== 'contractors');
+  await dbReload();
+}
+
+async function dbReload() {
+  dbState.items = dbState.entity === 'contractors'
+    ? await api.db.contractors(dbState.company)
+    : await api.db.products();
+  renderDbList();
+}
+
+function money(v) {
+  const n = Number(String(v).replace(/\s/g, '').replace(',', '.'));
+  return Number.isFinite(n) ? n.toLocaleString('ru-RU') : (v || '');
+}
+
+function renderDbList() {
+  const wrap = $('dbList');
+  wrap.innerHTML = '';
+  if (!dbState.items.length) {
+    $('dbEmpty').classList.remove('hidden');
+    $('dbEmpty').textContent = 'Пока пусто. Нажмите «＋ Добавить».';
+    return;
+  }
+  $('dbEmpty').classList.add('hidden');
+  for (const rec of dbState.items) {
+    const row = document.createElement('div');
+    row.className = 'db-row';
+    const sub = dbState.entity === 'contractors'
+      ? [rec.director, rec.inn && `ИНН ${rec.inn}`, rec.bank].filter(Boolean).join(' · ')
+      : `${money(rec.pricePerTon)} сум/тн`;
+    row.innerHTML = `
+      <div class="db-main">
+        <div class="db-name">${escapeHtml(rec.name || '—')}</div>
+        <div class="db-sub">${escapeHtml(sub)}</div>
+      </div>
+      <div class="db-actions">
+        <button class="ghost" data-edit>✎</button>
+        <button class="ghost" data-del>🗑</button>
+      </div>`;
+    row.querySelector('[data-edit]').addEventListener('click', () => openDbEditor(rec));
+    row.querySelector('[data-del]').addEventListener('click', () => dbDelete(rec));
+    wrap.appendChild(row);
+  }
+}
+
+function openDbEditor(rec) {
+  dbState.editId = rec ? rec.id : null;
+  rec = rec || {};
+  $('dbModalTitle').textContent = (dbState.entity === 'contractors' ? 'Контрагент' : 'Продукт')
+    + (dbState.editId ? '' : ' — новый');
+  const form = $('dbForm');
+  form.innerHTML = fieldsFor().map((f) => {
+    const v = rec[f.key] == null ? '' : rec[f.key];
+    if (f.type === 'toggle') {
+      const cur = v || f.options[0][0];
+      return `<div class="field"><span>${f.label}</span><div class="seg" data-toggle="${f.key}">${
+        f.options.map(([val, lbl]) =>
+          `<button class="seg-btn${cur === val ? ' active' : ''}" data-val="${val}">${lbl}</button>`).join('')
+      }</div></div>`;
+    }
+    return `<label class="field"><span>${f.label}</span>
+      <input data-k="${f.key}" type="text" inputmode="${f.type === 'number' ? 'numeric' : 'text'}"
+        value="${escapeHtml(v)}" placeholder="${escapeHtml(f.ph || '')}" /></label>`;
+  }).join('');
+  form.querySelectorAll('[data-toggle]').forEach((seg) => {
+    seg.querySelectorAll('.seg-btn').forEach((b) => b.addEventListener('click', () => {
+      seg.querySelectorAll('.seg-btn').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+    }));
+  });
+  $('dbModal').classList.remove('hidden');
+}
+
+function collectDbForm() {
+  const data = dbState.editId ? { id: dbState.editId } : {};
+  for (const f of fieldsFor()) {
+    if (f.type === 'toggle') {
+      const active = $('dbForm').querySelector(`[data-toggle="${f.key}"] .seg-btn.active`);
+      data[f.key] = active ? active.dataset.val : f.options[0][0];
+    } else {
+      data[f.key] = $('dbForm').querySelector(`[data-k="${f.key}"]`).value.trim();
+    }
+  }
+  return data;
+}
+
+async function dbSave() {
+  const data = collectDbForm();
+  if (!data.name) return toast('Укажите название.', 'err');
+  if (dbState.entity === 'contractors') await api.db.saveContractor(dbState.company, data);
+  else await api.db.saveProduct(data);
+  $('dbModal').classList.add('hidden');
+  await dbReload();
+  toast('Сохранено.', 'ok');
+}
+
+async function dbDelete(rec) {
+  if (dbState.entity === 'contractors') await api.db.deleteContractor(dbState.company, rec.id);
+  else await api.db.deleteProduct(rec.id);
+  await dbReload();
+  toast('Удалено.', 'ok');
+}
+
 // --- output folder (shared) ------------------------------------------------
 function setOutputDir(dir) {
   state.outputDir = dir;
@@ -587,8 +728,25 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   wireDropzone();
   document.querySelectorAll('.tile').forEach((t) =>
-    t.addEventListener('click', () => openTool(t.dataset.tool)));
+    t.addEventListener('click', () => {
+      const tool = t.dataset.tool;
+      if (tool === 'contractors' || tool === 'products') openDb(tool);
+      else openTool(tool);
+    }));
   $('homeBtn').addEventListener('click', showHome);
+
+  // Database screens
+  $('dbAddBtn').addEventListener('click', () => openDbEditor(null));
+  $('dbSave').addEventListener('click', dbSave);
+  $('dbCancel').addEventListener('click', () => $('dbModal').classList.add('hidden'));
+  $('dbModal').addEventListener('click', (e) => { if (e.target.id === 'dbModal') $('dbModal').classList.add('hidden'); });
+  $('dbCompanySwitch').querySelectorAll('.seg-btn').forEach((b) =>
+    b.addEventListener('click', () => {
+      $('dbCompanySwitch').querySelectorAll('.seg-btn').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+      dbState.company = b.dataset.company;
+      dbReload();
+    }));
 
   $('pickBtn').addEventListener('click', pickFiles);
   $('restartBtn').addEventListener('click', resetPdf);

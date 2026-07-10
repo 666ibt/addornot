@@ -224,3 +224,22 @@ button.ghost:hover { border-color: #3a4552; }
 }
 .toast.ok { border-color: var(--green); }
 .toast.err { border-color: var(--red); }
+
+/* --- database screens (контрагенты / продукты) --- */
+.db-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.db-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px;
+}
+.db-main { flex: 1; min-width: 0; }
+.db-name { font-weight: 600; font-size: 14px; }
+.db-sub { font-size: 12.5px; color: var(--muted); margin-top: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.db-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.db-actions .ghost { padding: 6px 10px; }
+/* wider, scrollable editor with a two-column field grid */
+#dbModal .modal-card { width: 640px; max-height: 88vh; overflow-y: auto; }
+#dbForm { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+#dbForm .field { margin-bottom: 12px; }
+@media (max-width: 560px) { #dbForm { grid-template-columns: 1fr; } }

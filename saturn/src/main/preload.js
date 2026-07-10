@@ -29,6 +29,20 @@ contextBridge.exposeInMainWorld('api', {
   pickImages: () => ipcRenderer.invoke('img:pick'),
   saveImages: (payload) => ipcRenderer.invoke('img:save', payload),
 
+  // contract database
+  db: {
+    all: () => ipcRenderer.invoke('db:all'),
+    contractors: (company) => ipcRenderer.invoke('db:contractors', company),
+    saveContractor: (company, data) => ipcRenderer.invoke('db:saveContractor', { company, data }),
+    deleteContractor: (company, id) => ipcRenderer.invoke('db:deleteContractor', { company, id }),
+    products: () => ipcRenderer.invoke('db:products'),
+    saveProduct: (data) => ipcRenderer.invoke('db:saveProduct', data),
+    deleteProduct: (id) => ipcRenderer.invoke('db:deleteProduct', id),
+    contractTypes: (company) => ipcRenderer.invoke('db:contractTypes', company),
+    addContractType: (company, type) => ipcRenderer.invoke('db:addContractType', { company, type }),
+    setContractTypes: (company, types) => ipcRenderer.invoke('db:setContractTypes', { company, types }),
+  },
+
   // events (main -> renderer)
   on: (channel, cb) => {
     const allowed = [
