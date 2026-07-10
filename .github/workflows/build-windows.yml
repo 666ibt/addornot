@@ -54,8 +54,8 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.1.0
-          name: Saturn v1.1.0
+          tag_name: v1.1.1
+          name: Saturn v1.1.1
           target_commitish: ${{ github.sha }}
           files: saturn/release/*.exe
           body: |
@@ -69,9 +69,9 @@ jobs:
 
             **Два варианта в разделе Assets ниже:**
 
-            - **`Saturn-1.1.0-portable.exe`** — портативная версия.
+            - **`Saturn-1.1.1-portable.exe`** — портативная версия.
               Ничего не устанавливает: скачал и сразу запустил. Рекомендуется.
-            - **`Saturn Setup 1.1.0.exe`** — обычный установщик.
+            - **`Saturn Setup 1.1.1.exe`** — обычный установщик.
 
             При первом запуске Windows покажет SmartScreen («Windows защитила
             ваш компьютер») — приложение не подписано платным сертификатом.

@@ -13,6 +13,9 @@ const cases = [
     { contract: 'ST-15-26-KS', date: '26.01.2026', counterparty: "O'LMAS HO'JA TOJI AZIZ" }],
   ['к Договору/№ 27/26-АЗС от 03.06.2026 года\n| Контрагент: ООО «DIL SUL» Ff',
     { contract: '27-26-АЗС', date: '03.06.2026', counterparty: 'DIL SUL' }],
+  // comma date separator, "<" for "/", "ПТК" prefix, stray leading "c"
+  ['к Договору № ST-250/26<KS от 29,06.2026 года\nКонтрагент: ПТК cAVTOMOBILCHI»',
+    { contract: 'ST-250-26-KS', date: '29.06.2026', counterparty: 'AVTOMOBILCHI' }],
 ];
 
 for (const [i, [text, exp]] of cases.entries()) {

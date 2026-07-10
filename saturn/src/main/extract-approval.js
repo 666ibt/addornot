@@ -21,18 +21,23 @@ function normalize(text) {
 
 // Contract token after "Договору №", up to " от ". Tolerant of OCR noise in the
 // separators (/, <, >, |, spaces) which we later fold to dashes.
-const CONTRACT_RE =
-  /договор[а-яё]*\s*[\/|]?\s*(?:№|N[eo°]?)\s*([A-ZА-Я0-9][A-ZА-Я0-9/\-–—<>|. ]*?)\s+от\s+\d{2}[.\-]\d{2}[.\-]\d{4}/i;
-const DATE_RE = /от\s+(\d{2})[.\-](\d{2})[.\-](\d{4})/i;
-// Counterparty after "Контрагент:", stripping an ООО/OOO/000 prefix and quotes,
-// keeping the name up to the closing quote (or end of line).
+// Contract token between the "№" marker and " от <date>". Captured loosely
+// (any non-newline chars) and cleaned afterwards, because OCR mangles the
+// separators (/, <, >, =) and the date separators may be commas.
+const DATE_SEP = '[.,\\-\\/]';
+const CONTRACT_RE = new RegExp(
+  'договор[а-яё]*\\s*[\\/|]?\\s*(?:№|N[eo°]?)\\s*(.+?)\\s+от\\s+\\d{2}\\s*' +
+  DATE_SEP + '\\s*\\d{2}\\s*' + DATE_SEP + '\\s*\\d{4}', 'i');
+const DATE_RE = new RegExp('от\\s+(\\d{2})\\s*' + DATE_SEP + '\\s*(\\d{2})\\s*' + DATE_SEP + '\\s*(\\d{4})', 'i');
+// Counterparty after "Контрагент:", stripping the org-form prefix and quotes.
 const PARTY_RE =
-  /контрагент\s*[:：]?\s*(?:ООО|OOO|000)?\s*"?\s*([^"\n]+?)\s*(?:".*)?$/im;
+  /контрагент\s*[:：]?\s*(?:ООО|OOO|000|ЗАО|ПАО|ОАО|ПТК|ГУП|МЧЖ|MCHJ|АО|ИП)?\s*"?\s*([^"\n]+?)\s*(?:".*)?$/im;
 
 function cleanContract(raw) {
   return String(raw || '')
+    .replace(/\$/g, 'S')                   // "$" mis-read for "S"
     .replace(/^[A-Za-zА-Яа-я](?=\d)/, '')  // strip a stray leading letter (e.g. "Ne" -> "e241")
-    .replace(/[\/<>|–—]+/g, '-')           // OCR separators -> dash
+    .replace(/[\/<>=|·•–—]+/g, '-')         // OCR separators -> dash
     .replace(/\s+/g, '')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
@@ -41,9 +46,10 @@ function cleanContract(raw) {
 
 function cleanParty(raw) {
   return String(raw || '')
-    .replace(/["«»`]+/g, '')                 // strip quotes, keep apostrophes (O'LMAS)
-    .replace(/[^\wА-Яа-яЁё'’ .&/-]+/g, ' ')   // drop other OCR junk
-    .replace(/\s+[A-Za-zА-Яа-я]$/, '')        // drop a single trailing stray letter
+    .replace(/["«»`]+/g, '')                  // strip quotes, keep apostrophes (O'LMAS)
+    .replace(/^[a-zа-я](?=[A-ZА-Я])/, '')      // drop a stray leading lower-case letter (cAVTO -> AVTO)
+    .replace(/[^\wА-Яа-яЁё'’ .&/-]+/g, ' ')    // drop other OCR junk
+    .replace(/\s+[A-Za-zА-Яа-я]$/, '')         // drop a single trailing stray letter
     .replace(/\s+/g, ' ')
     .trim();
 }
