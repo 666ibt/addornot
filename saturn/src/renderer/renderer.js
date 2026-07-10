@@ -681,6 +681,35 @@ async function dbDelete(rec) {
 // --- contract drafting: Оформление договора --------------------------------
 const cState = { company: 'SEGNUM', contractors: [], products: [], types: {} };
 
+// Виды договора — шаблоны № договора. {n} — номер (цифры из поля), {yy} — год
+// (2 цифры из даты заключения). Пользователь может добавить свой вид (сохранится).
+const DEFAULT_TYPES = {
+  SEGNUM: ['SGN-{n}/{yy}', 'SGN-{n}/{yy}-P', 'SGN-{n}/{yy}-K'],
+  'SEG TASCO': ['{n}/{yy}-TASCO', 'ST-{n}/{yy}-KS', 'ST-{n}/{yy}-K'],
+};
+// Пункт отгрузки — пока два варианта; текст в договоре донастроим позже.
+const SHIPMENTS = [
+  { label: '— как в шаблоне —', value: '' },
+  { label: 'Чиноз', value: 'терминал Чиноз' },
+  { label: 'ФНПЗ', value: 'Фарғона НПЗ' },
+];
+
+function contractYear2() {
+  const v = $('cDate').value;
+  const y = v ? new Date(v).getFullYear() : new Date().getFullYear();
+  return String(y % 100).padStart(2, '0');
+}
+function buildContractNumber() {
+  const pattern = $('cType').value || '';
+  const digits = String($('cNumber').value).replace(/\D/g, '');
+  return pattern.replace(/\{n\}/gi, digits).replace(/\{yy\}/gi, contractYear2());
+}
+function updateNumberPreview() {
+  const full = buildContractNumber();
+  const digits = String($('cNumber').value).replace(/\D/g, '');
+  $('cNumberPreview').textContent = digits ? `→ ${full}` : '';
+}
+
 // Адресаты служебной записки (из реальных образцов). Обращение подставляется
 // автоматически по выбранному адресату.
 const ADDRESSEES = {
@@ -712,7 +741,19 @@ async function openContract() {
   state.view = 'contract';
   $('subTitle').textContent = 'Оформление договора';
   if (!$('cContractorFields').children.length) renderContractorFields();
-  const all = await api.db.all();
+  if (!$('cShipment').children.length) {
+    $('cShipment').innerHTML = SHIPMENTS.map((s) => `<option value="${escapeHtml(s.value)}">${escapeHtml(s.label)}</option>`).join('');
+  }
+  let all = await api.db.all();
+  // Seed default contract types the first time each company is empty.
+  let seeded = false;
+  for (const co of Object.keys(DEFAULT_TYPES)) {
+    if (!(all.contractTypes[co] || []).length) {
+      for (const t of DEFAULT_TYPES[co]) await api.db.addContractType(co, t);
+      seeded = true;
+    }
+  }
+  if (seeded) all = await api.db.all();
   cState.contractors = all.contractors;
   cState.products = all.products;
   cState.types = all.contractTypes;
@@ -747,9 +788,12 @@ function refreshContractLists() {
   // products (shared)
   $('cProductSel').innerHTML = '<option value="">— ввести вручную —</option>'
     + cState.products.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
-  // contract types for the company
+  // contract types (виды договора) for the company
   const types = (cState.types && cState.types[cState.company]) || [];
-  $('cTypeList').innerHTML = types.map((t) => `<option value="${escapeHtml(t)}"></option>`).join('');
+  const cur = $('cType').value;
+  $('cType').innerHTML = types.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+  if (types.includes(cur)) $('cType').value = cur;
+  updateNumberPreview();
 }
 
 function setContractorFields(c) {
@@ -780,6 +824,23 @@ function collectContractor() {
   return c;
 }
 
+function openAddType() {
+  $('typeInput').value = '';
+  $('typeModal').classList.remove('hidden');
+  $('typeInput').focus();
+}
+async function saveNewType() {
+  const t = $('typeInput').value.trim();
+  if (!t) return toast('Введите шаблон.', 'err');
+  await api.db.addContractType(cState.company, t);
+  cState.types = (await api.db.all()).contractTypes;
+  $('typeModal').classList.add('hidden');
+  refreshContractLists();
+  $('cType').value = t;
+  updateNumberPreview();
+  toast('Вид договора добавлен.', 'ok');
+}
+
 function updateContractSummary() {
   const qty = Number(String($('cQty').value).replace(/\s/g, '').replace(',', '.'));
   const price = Number(String($('cPrice').value).replace(/\s/g, '').replace(',', '.'));
@@ -793,12 +854,13 @@ function updateContractSummary() {
 async function generateContractDocs() {
   const company = cState.company;
   const contractor = collectContractor();
+  const digits = String($('cNumber').value).replace(/\D/g, '');
   const data = {
     company,
     contractType: $('cType').value.trim(),
-    number: $('cNumber').value.trim(),
+    number: buildContractNumber(),
     date: $('cDate').value,
-    shipment: $('cShipment').value.trim(),
+    shipment: $('cShipment').value,
     counterparty: contractor,
     product: $('cProduct').value.trim(),
     pricePerTon: Number(String($('cPrice').value).replace(/\s/g, '').replace(',', '.')),
@@ -808,7 +870,8 @@ async function generateContractDocs() {
     requestNo: $('cRequestNo').value.trim(),
     outputDir: state.outputDir,
   };
-  if (!data.number) return toast('Укажите № договора.', 'err');
+  if (!digits) return toast('Укажите № договора (цифры).', 'err');
+  if (!$('cType').value) return toast('Выберите вид договора.', 'err');
   if (!data.date) return toast('Укажите дату заключения.', 'err');
   if (!contractor.name) return toast('Укажите наименование контрагента.', 'err');
   if (!data.product) return toast('Укажите наименование товара.', 'err');
@@ -917,6 +980,13 @@ window.addEventListener('DOMContentLoaded', async () => {
     }));
   $('cQty').addEventListener('input', updateContractSummary);
   $('cPrice').addEventListener('input', updateContractSummary);
+  $('cType').addEventListener('change', updateNumberPreview);
+  $('cNumber').addEventListener('input', updateNumberPreview);
+  $('cDate').addEventListener('change', updateNumberPreview);
+  $('cAddType').addEventListener('click', openAddType);
+  $('typeSave').addEventListener('click', saveNewType);
+  $('typeCancel').addEventListener('click', () => $('typeModal').classList.add('hidden'));
+  $('typeModal').addEventListener('click', (e) => { if (e.target.id === 'typeModal') $('typeModal').classList.add('hidden'); });
   $('cPickOut').addEventListener('click', pickOutput);
   $('cGenerate').addEventListener('click', generateContractDocs);
 

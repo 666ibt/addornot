@@ -69,6 +69,11 @@ function productPhraseRu(name) {
   return descGen ? `${descGen} марки ${grade}` : `марки ${grade}`;
 }
 
+// Пункт 1.2 договора зависит от акциза: с акцизом покупатель — конечный
+// потребитель (для собственных нужд); без акциза — покупка для перепродажи.
+const P12_ON = '«Харидор» якуний истеъмолчи ҳисобланади ва маҳсулотни ўз эхтиёжи учун харид қилади.';
+const P12_OFF = '«Харидор» якуний истеъмолчи ҳисобланмайди ва маҳсулотни қайта сотиш учун харид қилади.';
+
 // --- per-company договор templates ------------------------------------------
 // Baseline strings taken verbatim from the user's real contracts.
 const DOGOVOR = {
@@ -85,7 +90,11 @@ const DOGOVOR = {
     sum: '37 290 000,00',
     sumWords: 'ўттиз етти миллион икки юз тўқсон минг',
     shipment: 'терминал Чиноз',
-    akcizOff: { from: 'акциз солиғи билан кўрсатилган', to: 'акциз солиғисиз кўрсатилган' },
+    // baseline — с акцизом; выключение акциза меняет оговорку о цене и п.1.2
+    akcizOff: [
+      { from: 'акциз солиғи билан кўрсатилган', to: 'акциз солиғисиз кўрсатилган' },
+      { from: P12_ON, to: P12_OFF },
+    ],
     reqs: [
       { from: 'Манзил: Тошкент шахри, Чилонзор тумани, Бунёдкор шох кўчаси, 47-уй.', to: (c) => `Манзил: ${c.address || ''}` },
       { from: 'Банк: АКБ «Узсаноаткурилишбанк»', to: (c) => `Банк: ${c.bank || ''}` },
@@ -109,10 +118,11 @@ const DOGOVOR = {
     sum: '2 415 000 000,00',
     sumWords: 'икки миллиард тўрт юз ўн беш миллион',
     shipment: null, // FCA-станция клаузула специфична; по умолчанию оставляем как в шаблоне
-    akcizOn: {
-      from: 'ҚҚС ҳисобга олган ҳолда кўрсатилган',
-      to: 'ҚҚС ҳисобга олган ҳолда ва акциз солиғи билан кўрсатилган',
-    },
+    // baseline — без акциза; включение акциза добавляет оговорку и меняет п.1.2
+    akcizOn: [
+      { from: 'ҚҚС ҳисобга олган ҳолда кўрсатилган', to: 'ҚҚС ҳисобга олган ҳолда ва акциз солиғи билан кўрсатилган' },
+      { from: P12_OFF, to: P12_ON },
+    ],
     reqs: [
       { from: 'Манзил: Тошкент шахри, Чилонзор тумани, Бунёдкор кўчаси, 47-уй ', to: (c) => `Манзил: ${c.address || ''}` },
       { from: 'Банк: АКБ "Узпромстройбанк"', to: (c) => `Банк: ${c.bank || ''}` },
@@ -195,9 +205,9 @@ function dogovorReplacements(t, d) {
     { from: t.sumWords, to: integerToWordsUz(Math.round(d.sum)) },
     { para: t.qty, to: String(d.qty) },
   ];
-  // акциз toggle (per-template)
-  if (d.akciz && t.akcizOn) R.push(t.akcizOn);
-  if (!d.akciz && t.akcizOff) R.push(t.akcizOff);
+  // акциз toggle (per-template): applies the оговорка + п.1.2 variant
+  const akcizFix = d.akciz ? t.akcizOn : t.akcizOff;
+  if (akcizFix) for (const r of akcizFix) R.push(r);
   // пункт отгрузки (optional override)
   if (t.shipment && d.shipment && d.shipment.trim() && d.shipment.trim() !== t.shipment) {
     R.push({ from: t.shipment, to: d.shipment.trim() });

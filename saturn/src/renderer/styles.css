@@ -252,3 +252,13 @@ button.ghost:hover { border-color: #3a4552; }
 .cf-set legend { padding: 0 8px; font-size: 13px; font-weight: 700; color: var(--text); }
 .cf-summary { margin: 6px 2px 12px; font-size: 14px; line-height: 1.6; }
 .cf-summary b { color: var(--text); font-size: 15px; }
+
+/* вид договора: select + кнопка «＋» */
+.type-row { display: flex; gap: 8px; align-items: stretch; }
+.type-row select { flex: 1; }
+.type-row .ghost { padding: 8px 12px; font-size: 16px; line-height: 1; }
+#cType, #cShipment {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px;
+}
+.cf-grid #cNumberPreview { margin-top: 4px; }

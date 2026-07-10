@@ -88,16 +88,20 @@
         </div>
 
         <div class="cf-grid">
-          <label class="field"><span>Вид договора</span>
-            <input id="cType" list="cTypeList" placeholder="напр. SGN-##-## или ##-###-##-KS" />
-            <datalist id="cTypeList"></datalist>
+          <div class="field"><span>Вид договора</span>
+            <div class="type-row">
+              <select id="cType"></select>
+              <button id="cAddType" class="ghost" title="Добавить свой вид">＋</button>
+            </div>
+          </div>
+          <label class="field"><span>№ договора (только цифры)</span>
+            <input id="cNumber" inputmode="numeric" placeholder="напр. 231" />
+            <small class="muted" id="cNumberPreview"></small>
           </label>
-          <label class="field"><span>№ договора</span>
-            <input id="cNumber" placeholder="напр. SGN-231/26" /></label>
           <label class="field"><span>Дата заключения</span>
             <input id="cDate" type="date" /></label>
-          <label class="field"><span>Пункт отгрузки (необязательно)</span>
-            <input id="cShipment" placeholder="оставьте пустым — как в шаблоне" /></label>
+          <label class="field"><span>Пункт отгрузки</span>
+            <select id="cShipment"></select></label>
         </div>
 
         <fieldset class="cf-set">
@@ -163,6 +167,22 @@
       <div id="dbList" class="db-list"></div>
       <div id="dbEmpty" class="result-count hidden"></div>
     </section>
+
+    <!-- Add contract-type (вид договора) modal -->
+    <div id="typeModal" class="modal hidden">
+      <div class="modal-card">
+        <h2>Новый вид договора</h2>
+        <label class="field">
+          <span>Шаблон № договора</span>
+          <input id="typeInput" placeholder="напр. SGN-{n}/{yy}-P" />
+          <small class="muted">Используйте <code>{n}</code> — номер, <code>{yy}</code> — год (2 цифры).</small>
+        </label>
+        <div class="modal-actions">
+          <button id="typeCancel" class="ghost">Отмена</button>
+          <button id="typeSave" class="primary">Добавить</button>
+        </div>
+      </div>
+    </div>
 
     <!-- DB record editor modal -->
     <div id="dbModal" class="modal hidden">

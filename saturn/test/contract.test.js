@@ -43,6 +43,9 @@ test('SEGNUM: договор + записка (no лист), no акциз, Uzbe
   }
   assert.ok(!t.includes('SANOAT'), 'baseline counterparty replaced');
   assert.ok(!t.includes('37 290 000,00'), 'baseline sum replaced');
+  // без акциза → п.1.2 «для перепродажи»
+  assert.ok(t.includes('ҳисобланмайди ва маҳсулотни қайта сотиш'), 'п.1.2 resale variant');
+  assert.ok(!t.includes('ҳисобланади ва маҳсулотни ўз эхтиёжи'), 'п.1.2 own-needs removed');
 });
 
 test('SEG TASCO: договор + лист + записка, акциз on, доверенность intro', () => {
@@ -55,6 +58,8 @@ test('SEG TASCO: договор + лист + записка, акциз on, до
     assert.ok(d.includes(s), `договор expected «${s}»`);
   }
   assert.ok(!d.includes('SEG MOTOL'), 'baseline counterparty replaced');
+  // с акцизом → п.1.2 «для собственных нужд»
+  assert.ok(d.includes('ҳисобланади ва маҳсулотни ўз эхтиёжи'), 'п.1.2 own-needs variant');
   const l = text(r.files[1].buffer);
   assert.match(r.files[1].name, /^Лист согласований к Договору № ST-260-26-KS от 03\.08\.2026 FARGONA GAZ\.docx$/);
   for (const s of ['ST-260/26-KS', '03.08.2026', 'FARGONA GAZ']) {
