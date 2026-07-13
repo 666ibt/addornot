@@ -253,12 +253,31 @@ button.ghost:hover { border-color: #3a4552; }
 .cf-summary { margin: 6px 2px 12px; font-size: 14px; line-height: 1.6; }
 .cf-summary b { color: var(--text); font-size: 15px; }
 
+/* input cells: unify every text input, date & select inside the form */
+.contract-form .field input,
+.contract-form .field select {
+  width: 100%;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 9px 11px; font: inherit; line-height: 1.35;
+  transition: border-color .15s, box-shadow .15s;
+}
+.contract-form .field input::placeholder { color: var(--muted); }
+.contract-form .field input:hover,
+.contract-form .field select:hover { border-color: #3a4552; }
+.contract-form .field input:focus,
+.contract-form .field select:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, .18);
+}
+/* keep the native date picker icon legible on the dark background */
+.contract-form .field input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(.85); cursor: pointer; opacity: .7;
+}
+.contract-form .field input[type="date"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
+
 /* вид договора: select + кнопка «＋» */
 .type-row { display: flex; gap: 8px; align-items: stretch; }
 .type-row select { flex: 1; }
 .type-row .ghost { padding: 8px 12px; font-size: 16px; line-height: 1; }
-#cType, #cShipment {
-  background: var(--panel-2); color: var(--text);
-  border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px;
-}
 .cf-grid #cNumberPreview { margin-top: 4px; }
