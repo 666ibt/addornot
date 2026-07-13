@@ -727,6 +727,18 @@ function refreshAddressees() {
   $('cAddressee').innerHTML = list.map((a, i) => `<option value="${i}">${escapeHtml(a.komu)}</option>`).join('');
 }
 
+// Основание в служебной записке — зависит от компании/вида (текст «в счёт …»).
+function refreshZapiskaBasis() {
+  const co = cState.company;
+  const own = `в счет прогнозных выработок из собственного сырья ООО «${co}» на Ферганском НПЗ`;
+  const opts = [
+    ['в счет собственных импортных объёмов', 'в счёт собственных импортных объёмов'],
+    [own, 'в счёт прогнозных выработок (собственное сырьё)'],
+  ];
+  $('cBasis').innerHTML = opts.map(([v, l]) => `<option value="${escapeHtml(v)}">${escapeHtml(l)}</option>`).join('');
+  $('cBasis').value = co === 'SEGNUM' ? opts[0][0] : opts[1][0];
+}
+
 function groupMoney(n) {
   n = Math.round(Math.abs(Number(n) || 0));
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
@@ -760,6 +772,7 @@ async function openContract() {
   if (!$('cDate').value) $('cDate').value = new Date().toISOString().slice(0, 10);
   refreshContractLists();
   refreshAddressees();
+  refreshZapiskaBasis();
 }
 
 function renderContractorFields() {
@@ -866,8 +879,10 @@ async function generateContractDocs() {
     pricePerTon: Number(String($('cPrice').value).replace(/\s/g, '').replace(',', '.')),
     qty: Number(String($('cQty').value).replace(/\s/g, '').replace(',', '.')),
     akciz: $('cAkciz').querySelector('.seg-btn.active').dataset.v === 'yes',
+    manufacturer: $('cP13').value === 'yes',
     addressee: (ADDRESSEES[company] || [])[Number($('cAddressee').value) || 0],
     requestNo: $('cRequestNo').value.trim(),
+    zapiskaBasis: $('cBasis').value,
     outputDir: state.outputDir,
   };
   if (!digits) return toast('Укажите № договора (цифры).', 'err');
@@ -964,6 +979,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       setContractorFields(null);
       refreshContractLists();
       refreshAddressees();
+      refreshZapiskaBasis();
     }));
   $('cContractorSel').addEventListener('change', (e) => {
     const c = (cState.contractors[cState.company] || []).find((x) => x.id === e.target.value);

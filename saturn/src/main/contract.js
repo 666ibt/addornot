@@ -151,6 +151,7 @@ const ZAPISKA = {
     komu: 'Директору ООО «SEGNUM» Закирову Ш.Ш.',
     greet: 'Уважаемый Шерзод Шавкатович!',
     requestNo: '№ 002-0001-1336-2026',
+    basis: 'в счет собственных импортных объёмов',
     baselineAkciz: true,
   },
   'SEG TASCO': {
@@ -163,6 +164,7 @@ const ZAPISKA = {
     komu: 'Генеральному директору ООО «SEG TASCO» Шерназарову У.Э.',
     greet: 'Уважаемый Улугбек Элмурадович!',
     requestNo: '№ б/н',
+    basis: 'в счет прогнозных выработок из собственного сырья ООО «SEG TASCO» на Ферганском НПЗ',
     baselineAkciz: false,
   },
 };
@@ -176,6 +178,7 @@ function zapiskaReplacements(z, d) {
     { from: z.product, to: productPhraseRu(d.product) },
     { from: z.requestNo, to: `№ ${(d.requestNo || 'б/н').trim()}` },
   ];
+  if (d.zapiskaBasis) R.push({ from: z.basis, to: d.zapiskaBasis });
   const a = d.addressee || {};
   if (a.komu && a.komu !== z.komu) R.push({ from: z.komu, to: a.komu });
   if (a.greet && a.greet !== z.greet) R.push({ from: z.greet, to: a.greet });
@@ -208,6 +211,8 @@ function dogovorReplacements(t, d) {
   // акциз toggle (per-template): applies the оговорка + п.1.2 variant
   const akcizFix = d.akciz ? t.akcizOn : t.akcizOff;
   if (akcizFix) for (const r of akcizFix) R.push(r);
+  // п.1.3 — производитель ли «Етказиб берувчи» (по умолчанию — нет)
+  if (d.manufacturer) R.push({ from: 'ишлаб чиқарувчиси ҳисобланмайди', to: 'ишлаб чиқарувчиси ҳисобланади' });
   // пункт отгрузки (optional override)
   if (t.shipment && d.shipment && d.shipment.trim() && d.shipment.trim() !== t.shipment) {
     R.push({ from: t.shipment, to: d.shipment.trim() });

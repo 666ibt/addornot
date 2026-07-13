@@ -90,6 +90,23 @@ test('служебная записка: адресат, № запроса, с�
   assert.ok(zt.includes('№ б/н'), 'default request number');
 });
 
+test('п.1.3 producer toggle and записка «в счёт …» basis', () => {
+  // manufacturer=true → «...ишлаб чиқарувчиси ҳисобланади»
+  const m = generate({ ...segnum, manufacturer: true }, TPL);
+  assert.ok(text(m.files[0].buffer).includes('ишлаб чиқарувчиси ҳисобланади'));
+  // default → «...ҳисобланмайди»
+  const d0 = generate(segnum, TPL);
+  assert.ok(text(d0.files[0].buffer).includes('ишлаб чиқарувчиси ҳисобланмайди'));
+  // записка basis override for SEGNUM → «прогнозных выработок … ООО «SEGNUM» …»
+  const b = generate({
+    ...segnum,
+    zapiskaBasis: 'в счет прогнозных выработок из собственного сырья ООО «SEGNUM» на Ферганском НПЗ',
+  }, TPL);
+  const z = text(b.files[1].buffer);
+  assert.ok(z.includes('прогнозных выработок из собственного сырья ООО «SEGNUM»'));
+  assert.ok(!z.includes('импортных объёмов'), 'baseline basis replaced');
+});
+
 test('productPhraseRu declines common ГСМ names', () => {
   assert.equal(productPhraseRu('Бензин АИ-100-К5'), 'бензина марки АИ-100-К5');
   assert.equal(productPhraseRu('Масло индустриальное И12А'), 'индустриального масла марки И12А');
