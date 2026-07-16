@@ -51,6 +51,34 @@ test('SGN with mangled slash yields empty, not a wrong split', () => {
   assert.equal(extractDogovor('SGN-211726-P').matched, false);
 });
 
+// --- TASCO / АЗС-С contracts (ТТН «Контракт» line) -------------------------
+test('TASCO contract from Контракт line', () => {
+  assert.equal(
+    extractDogovor('Контракт Договор №73/26-TASCO от 11.03.2026').value, '73/26-TASCO');
+  const r = extractDogovor('Договор №116/26-TASCO от 06.04.2026');
+  assert.equal(r.value, '116/26-TASCO');
+  assert.equal(r.kind, 'tasco');
+});
+
+test('АЗС-С contract from Контракт line', () => {
+  const r = extractDogovor('Договор №15/26-АЗС-С от 03.04.2026 С Доставкой');
+  assert.equal(r.value, '15/26-АЗС-С');
+  assert.equal(r.kind, 'azs');
+});
+
+test('does not grab the Основание «№…-ПР» framework contract', () => {
+  const text = 'Контракт: Договор №73/26-TASCO от 11.03.2026\n'
+    + 'Основание: Согласно договору №109-ПР от 10.03.2022 года (собственный)';
+  assert.equal(extractDogovor(text).value, '73/26-TASCO');
+});
+
+test('TASCO / АЗС-С -> filename form', () => {
+  assert.equal(makeFilename({ nakladnaya: '661', dogovor: '73/26-TASCO' }),
+    '661_73-26-TASCO.pdf');
+  assert.equal(makeFilename({ nakladnaya: '657', dogovor: '15/26-АЗС-С' }),
+    '657_15-26-АЗС-С.pdf');
+});
+
 // --- накладная (invoice number) -------------------------------------------
 test('накладная number after №', () => {
   assert.equal(extractNakladnaya('Товарно-транспортная накладная № 37').value, '37');
