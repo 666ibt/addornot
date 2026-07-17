@@ -60,10 +60,18 @@ test('TASCO contract from Контракт line', () => {
   assert.equal(r.kind, 'tasco');
 });
 
-test('АЗС-С contract from Контракт line', () => {
+test('АЗС-С contract from Контракт line (с доставкой)', () => {
   const r = extractDogovor('Договор №15/26-АЗС-С от 03.04.2026 С Доставкой');
   assert.equal(r.value, '15/26-АЗС-С');
   assert.equal(r.kind, 'azs');
+});
+
+test('АЗС contract without «-С» suffix (самовывоз)', () => {
+  const r = extractDogovor('Контракт Договор №8/26-АЗС от 28.01.2026');
+  assert.equal(r.value, '8/26-АЗС');
+  assert.equal(r.kind, 'azs');
+  // and OCR "Ne" for №
+  assert.equal(extractDogovor('Договор Ne8/26-A3C от 28.01.2026').value, '8/26-АЗС');
 });
 
 test('does not grab the Основание «№…-ПР» framework contract', () => {

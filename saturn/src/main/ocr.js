@@ -106,6 +106,12 @@ async function rotateBuffer(buffer, deg) {
   return img.getBufferAsync(Jimp.MIME_PNG);
 }
 
+/** Pixel dimensions of a PNG buffer. */
+async function imageSize(buffer) {
+  const img = await Jimp.read(buffer);
+  return { width: img.bitmap.width, height: img.bitmap.height };
+}
+
 async function recognizeScored(scheduler, buffer, deg) {
   const buf = await rotateBuffer(buffer, deg);
   const { data } = await scheduler.addJob('recognize', buf);
@@ -119,11 +125,26 @@ async function recognizeScored(scheduler, buffer, deg) {
 /**
  * Run OCR on a PNG image buffer, auto-correcting page orientation.
  *
- * Scanned waybills are sometimes rotated 90°/180°. We OCR the upright image
- * first; if it doesn't read well (few fields, low confidence) we try the other
- * three orientations — in parallel across the worker pool — and keep whichever
- * recognizes best. The chosen rotation (a counter-clockwise jimp angle) is
- * returned so the caller can show and save the page upright.
+ * Full-page OCR has a large fixed cost (~8-14s) that barely shrinks with image
+ * size, so the win is in doing as FEW passes as possible — not in shrinking
+ * them. Two moves:
+ *
+ *   1. Always try 0° first. Most scans are upright, and this one pass serves
+ *      both upright form types (the landscape ТТН and the portrait FNPZ
+ *      "Накладная на отпуск материалов"). If it reads well we stop — one pass.
+ *
+ *   2. If 0° reads poorly, use the render's aspect ratio to pick which
+ *      remaining orientations are even possible, instead of blindly trying all
+ *      three:
+ *        • Landscape render → the only other sensible orientation is 180°
+ *          (upside-down). One extra pass.
+ *        • Portrait render  → the form was scanned sideways, so upright is 90°
+ *          or 270°. Two extra passes (in parallel); 180° can't be right.
+ *
+ * So a rotated page costs ≤3 passes instead of 4, and the common upright page
+ * stays at one — without ever assuming a form is landscape. The chosen rotation
+ * (a counter-clockwise jimp angle) is returned so the caller can show and save
+ * the page upright.
  *
  * @param {Buffer} imageBuffer
  * @returns {Promise<{text: string, confidence: number, rotation: number}>}
@@ -136,10 +157,15 @@ async function ocrImage(imageBuffer) {
     return { text: at0.text, confidence: at0.confidence, rotation: 0 };
   }
 
-  const others = await Promise.all(
-    [90, 180, 270].map((deg) => recognizeScored(scheduler, imageBuffer, deg)));
+  const { width, height } = await imageSize(imageBuffer);
+  const others = width >= height
+    ? [180]        // landscape → only upside-down is left to check
+    : [90, 270];   // portrait → scanned sideways, upright is 90° or 270°
+  const results = await Promise.all(
+    others.map((deg) => recognizeScored(scheduler, imageBuffer, deg)));
+
   let best = at0;
-  for (const r of others) if (r.score > best.score) best = r;
+  for (const r of results) if (r.score > best.score) best = r;
   return { text: best.text, confidence: best.confidence, rotation: best.rotation };
 }
 
