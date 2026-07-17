@@ -150,12 +150,17 @@ button.ghost:hover { border-color: #3a4552; }
 .src { color: var(--muted); font-size: 11px; }
 .fname { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--text); word-break: break-all; }
 .fname .warn { color: var(--amber); }
-.card .actions { display: flex; justify-content: flex-end; }
+.card .actions { display: flex; justify-content: space-between; gap: 8px; }
 .card .save-one {
   background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
   border-radius: 7px; padding: 6px 12px; font-size: 12.5px;
 }
 .card .save-one:hover { border-color: var(--accent); color: #fff; }
+.card .del-one {
+  background: transparent; color: var(--muted); border: 1px solid var(--border);
+  border-radius: 7px; padding: 6px 12px; font-size: 12.5px;
+}
+.card .del-one:hover { border-color: var(--red); color: var(--red); }
 .card.saved .save-one { border-color: var(--green); color: var(--green); }
 
 /* Result count footer */

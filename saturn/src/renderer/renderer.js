@@ -246,7 +246,10 @@ function renderCard(pageId) {
       <div class="fname">→ <span class="name${warn}">${escapeHtml(preview)}</span></div>
       ${rec.aiError ? `<div class="src" style="color:var(--red)">AI: ${escapeHtml(rec.aiError)}</div>` : ''}
       ${rec.error ? `<div class="src" style="color:var(--red)">${escapeHtml(rec.error)}</div>` : ''}
-      <div class="actions"><button class="save-one" data-save>💾 Сохранить этот</button></div>
+      <div class="actions">
+        <button class="del-one" data-del title="Убрать из списка — эта страница не будет сохранена">🗑 Удалить</button>
+        <button class="save-one" data-save>💾 Сохранить этот</button>
+      </div>
     </div>`;
 
   const nak = card.querySelector('[data-f="nak"]');
@@ -260,6 +263,19 @@ function renderCard(pageId) {
   if (thumb) thumb.addEventListener('click', () => openZoom(pageId));
   const saveBtn = card.querySelector('[data-save]');
   if (saveBtn) saveBtn.addEventListener('click', () => saveOne(pageId));
+  const delBtn = card.querySelector('[data-del]');
+  if (delBtn) delBtn.addEventListener('click', () => removePage(pageId));
+}
+
+// Drop a processed page from the list so «Сохранить всё» skips it. The source
+// PDF is untouched — this only removes the card/record from the review list.
+function removePage(pageId) {
+  state.pages.delete(pageId);
+  const card = document.querySelector(`[data-page="${pageId}"]`);
+  if (card) card.remove();
+  if (state.zoomPageId === pageId) { state.zoomPageId = null; closeZoom(); }
+  updateResultCount();
+  updateSaveButton();
 }
 
 function updatePreview(card, rec) {
