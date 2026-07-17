@@ -58,6 +58,8 @@ test('TASCO contract from Контракт line', () => {
   const r = extractDogovor('Договор №116/26-TASCO от 06.04.2026');
   assert.equal(r.value, '116/26-TASCO');
   assert.equal(r.kind, 'tasco');
+  // OCR often mangles "TASCO" into Cyrillic look-alikes ("ТАЗСО")
+  assert.equal(extractDogovor('Договор №56/26-ТАЗСО от 03.03.2026').value, '56/26-TASCO');
 });
 
 test('АЗС-С contract from Контракт line (с доставкой)', () => {
