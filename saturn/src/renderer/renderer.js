@@ -369,6 +369,9 @@ function onZoomEdit() {
 // --- start over ------------------------------------------------------------
 function resetPdf() {
   cancelActive();
+  // Free the finished job in the main process so memory doesn't pile up
+  // across batches (big batches were hanging the app on the second run).
+  if (state.jobId && api.release) api.release(state.jobId);
   state.jobId = null;
   state.pages.clear();
   state.total = 0;

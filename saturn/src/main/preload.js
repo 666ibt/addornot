@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   // processing (PDF tools: ttn / split / approval)
   startProcessing: (filePaths, mode) => ipcRenderer.invoke('process:start', { filePaths, mode }),
   cancel: () => ipcRenderer.invoke('process:cancel'),
+  release: (jobId) => ipcRenderer.invoke('process:release', jobId),
   save: (payload) => ipcRenderer.invoke('process:save', payload),
   saveOne: (payload) => ipcRenderer.invoke('process:saveOne', payload),
 

@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs/promises');
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 
-const { renderPagesToImages, renderSinglePage, splitPage, imageToPdf, imagesToPdf } = require('./pdf');
+const { renderSinglePage, pageCount, splitPage, imageToPdf, imagesToPdf } = require('./pdf');
 const {
   ocrImage, ocrPlain, cropTop, rotateBuffer, jimpToPdfRotation, workerCount,
   terminate: terminateOcr,
@@ -218,6 +218,9 @@ ipcMain.handle('process:start', async (_e, arg) => {
   const mode = (Array.isArray(arg) ? 'ttn' : arg.mode) || 'ttn';
   const jobId = `job_${Date.now()}`;
   const settings = getSettings();
+  // The UI works one job at a time; drop any previous job so memory (and the
+  // jobs map) never accumulates across batches.
+  jobs.clear();
   const pages = [];
   jobs.set(jobId, pages);
   cancelRequested = false;
@@ -226,39 +229,36 @@ ipcMain.handle('process:start', async (_e, arg) => {
   // a lower scale is enough and much faster; the splitter only needs a preview.
   const renderScale = mode === 'ttn' ? 3.2 : mode === 'approval' ? 2.6 : 1.6;
 
-  // Count total pages up front for progress.
-  let totalPages = 0;
-  const perFileImages = [];
+  // Build the page task list from page COUNTS only — we do NOT pre-render every
+  // page up front (that held the whole batch of PNGs in memory at once and made
+  // large batches hang). Each page is rendered lazily inside processTask, so at
+  // most `workerCount()` page images live at any moment, regardless of batch size.
+  const tasks = [];
   for (const filePath of filePaths) {
     if (cancelRequested) return { jobId, cancelled: true };
     try {
-      const images = await renderPagesToImages(filePath, renderScale);
-      perFileImages.push({ filePath, images });
-      totalPages += images.length;
+      const count = await pageCount(filePath);
+      for (let i = 0; i < count; i++) {
+        tasks.push({ filePath, pageIndex: i, index: tasks.length });
+      }
     } catch (err) {
       send('process:error', { filePath, message: String(err.message || err) });
     }
   }
-  send('process:meta', { jobId, totalPages });
-
-  // Flatten to a list of page tasks with stable indices.
-  const tasks = [];
-  for (const { filePath, images } of perFileImages) {
-    for (let i = 0; i < images.length; i++) {
-      tasks.push({ filePath, png: images[i], pageIndex: i, index: tasks.length });
-    }
-  }
+  send('process:meta', { jobId, totalPages: tasks.length });
   pages.length = tasks.length; // pre-size so results keep page order
 
   let done = 0;
   const processTask = async (task) => {
     if (cancelRequested) return;
-    const png = task.png;
     let fields = {};
     let rotation = 0;
-    let displayPng = png;
+    let png = null;         // rendered lazily below; freed when the task ends
+    let displayPng = null;
     let ocrText = '';
     try {
+      png = await renderSinglePage(task.filePath, task.pageIndex, renderScale);
+      displayPng = png;
       if (mode === 'split') {
         // No OCR — just split and name by page.
         const base = path.basename(task.filePath, path.extname(task.filePath));
@@ -317,7 +317,10 @@ ipcMain.handle('process:start', async (_e, arg) => {
     };
     pages[task.index] = record;
 
-    const thumb = await thumbnail(displayPng);
+    const thumb = displayPng ? await thumbnail(displayPng) : null;
+    // Drop the page bitmaps so they can be reclaimed before the next task.
+    png = null;
+    displayPng = null;
     if (cancelRequested) return;
     done += 1;
     send('process:page', { jobId, done, ...record, thumb });
@@ -377,13 +380,17 @@ ipcMain.handle('process:save', async (_e, { jobId, outputDir, edits }) => {
   if (!pages) throw new Error('Задача не найдена (возможно, приложение перезапускалось).');
   if (!outputDir) throw new Error('Не выбрана папка для сохранения.');
 
-  const editMap = new Map((edits || []).map((x) => [x.pageId, x]));
+  // `edits` is the authoritative list of pages to save — it comes from the
+  // cards still on screen, so pages the user deleted are simply absent and are
+  // NOT saved. (Previously we looped over every page in the job, which saved
+  // deleted cards anyway.)
+  const pageById = new Map(pages.filter(Boolean).map((p) => [p.pageId, p]));
   const used = new Set();
   const results = [];
 
-  for (const page of pages) {
+  for (const edit of edits || []) {
+    const page = pageById.get(edit.pageId);
     if (!page) continue;
-    const edit = editMap.get(page.pageId) || {};
     const finalName = dedupe(ensurePdfName(edit.name ?? page.name), used);
     const outPath = path.join(outputDir, finalName);
     try {
@@ -397,6 +404,13 @@ ipcMain.handle('process:save', async (_e, { jobId, outputDir, edits }) => {
 
   setSettings({ lastOutputDir: outputDir });
   return { outputDir, results };
+});
+
+// Release a finished job's data (called on "Начать заново") so memory doesn't
+// accumulate across batches.
+ipcMain.handle('process:release', (_e, jobId) => {
+  if (jobId) jobs.delete(jobId); else jobs.clear();
+  return { ok: true };
 });
 
 // Save a single reviewed page.
