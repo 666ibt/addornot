@@ -156,6 +156,12 @@ test('FNPZ: ST contract does not grab Доверенность/FNPZ/Segnum', () 
   assert.equal(extractDogovor(text).value, 'ST-252/26-KS');
 });
 
+test('ST contract when № is OCR-glued as "NeST"', () => {
+  // real scan: «Договор №ST-539/25-K» came out as "NeST-539/25-K"
+  assert.equal(extractDogovor('Контракт Договор NeST-539/25-K от 26.09.2025').value,
+    'ST-539/25-K');
+});
+
 test('FNPZ: ST contract -> filename form', () => {
   assert.equal(makeFilename({ nakladnaya: '80130800', dogovor: 'ST-248/26-KS' }),
     '80130800_ST-248-26-KS.pdf');
