@@ -94,7 +94,30 @@ test('накладная with N instead of №', () => {
 
 test('накладная when № is OCR-read as "Ne"', () => {
   assert.equal(
-    extractNakladnaya('ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ Ne 1140 Tu').value, '1140');
+    extractNakladnaya('ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ Ne 1140 Типовая форма').value, '1140');
+});
+
+// --- letter suffix on the invoice number ("№ 1125 тч", "№ 1431 ч") ----------
+test('накладная keeps "тч" suffix', () => {
+  assert.equal(
+    extractNakladnaya('ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ № 1125 тч').value, '1125тч');
+});
+
+test('накладная keeps "ч" suffix', () => {
+  assert.equal(extractNakladnaya('НАКЛАДНАЯ № 1431 ч').value, '1431ч');
+});
+
+test('накладная "ч" suffix OCR-read as Latin "y"', () => {
+  // real scan: the lone «ч» came out of Tesseract as "y"
+  assert.equal(extractNakladnaya('ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ № 1431 y |').value, '1431ч');
+});
+
+test('накладная without suffix stays a plain number', () => {
+  assert.equal(extractNakladnaya('НАКЛАДНАЯ № 657').value, '657');
+});
+
+test('two-letter border noise ("№ 656 ЧЩ") is not taken as a suffix', () => {
+  assert.equal(extractNakladnaya('ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ № 656 ЧЩ').value, '656');
 });
 
 test('strips leading zeros', () => {
