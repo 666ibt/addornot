@@ -76,6 +76,16 @@ test('АЗС contract without «-С» suffix (самовывоз)', () => {
   assert.equal(extractDogovor('Договор Ne8/26-A3C от 28.01.2026').value, '8/26-АЗС');
 });
 
+test('AZT contract (prefix-first) from Контракт line', () => {
+  const r = extractDogovor('Контракт № AZT-2/26 от 03.03.2026');
+  assert.equal(r.value, 'AZT-2/26');
+  assert.equal(r.kind, 'azt');
+  // Cyrillic-mangled letters
+  assert.equal(extractDogovor('№ АЗT-14/26 от 01.01.2026').value, 'AZT-14/26');
+  // must not swallow the "AZT FOODS" shipper name (no -number after)
+  assert.equal(extractDogovor('Грузоотправитель ООО "AZT FOODS"').matched, false);
+});
+
 test('does not grab the Основание «№…-ПР» framework contract', () => {
   const text = 'Контракт: Договор №73/26-TASCO от 11.03.2026\n'
     + 'Основание: Согласно договору №109-ПР от 10.03.2022 года (собственный)';
