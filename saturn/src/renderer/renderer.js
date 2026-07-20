@@ -192,10 +192,20 @@ function pageIndexOf(pageId) {
   const n = parseInt(String(pageId).split(':').pop(), 10);
   return Number.isFinite(n) ? n : 0;
 }
+// Cards are ordered by confidence first (низкая → средняя → высокая) so the
+// pages that need checking float to the top, then by original page order.
+const CONF_RANK = { low: 0, medium: 1, high: 2 };
+function confRank(rec) {
+  return CONF_RANK[(rec && rec.confidence) || 'low'] ?? 0;
+}
 function insertCardInOrder(card) {
+  const rank = Number(card.dataset.confrank);
   const idx = Number(card.dataset.index);
   const cards = $('cards');
-  const after = [...cards.children].find((c) => Number(c.dataset.index) > idx);
+  const after = [...cards.children].find((c) => {
+    const r = Number(c.dataset.confrank);
+    return r > rank || (r === rank && Number(c.dataset.index) > idx);
+  });
   cards.insertBefore(card, after || null);
 }
 
@@ -225,6 +235,7 @@ function renderCard(pageId) {
     card.className = 'card';
     card.dataset.page = pageId;
     card.dataset.index = String(pageIndexOf(pageId));
+    card.dataset.confrank = String(confRank(rec));
     insertCardInOrder(card);
   }
   const conf = rec.confidence || 'low';

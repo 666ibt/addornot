@@ -127,45 +127,53 @@ async function recognizeScored(scheduler, buffer, deg) {
  *
  * Full-page OCR has a large fixed cost (~8-14s) that barely shrinks with image
  * size, so the win is in doing as FEW passes as possible — not in shrinking
- * them. Two moves:
+ * them. Quality is never traded away: every page is still OCR'd at full scale
+ * and the orientation is confirmed by how well it actually reads.
  *
- *   1. Always try 0° first. Most scans are upright, and this one pass serves
- *      both upright form types (the landscape ТТН and the portrait FNPZ
- *      "Накладная на отпуск материалов"). If it reads well we stop — one pass.
+ *   1. Try the LAST known-good orientation first. Scans arrive in batches that
+ *      share one orientation, so once we've learned it, every following page
+ *      reads in a single pass — this is what makes a batch of rotated scans
+ *      fast instead of paying a sweep on every page. Starts at 0° (upright),
+ *      which also serves the common upright case and both form shapes
+ *      (landscape ТТН, portrait FNPZ "Накладная на отпуск материалов").
  *
- *   2. If 0° reads poorly, use the render's aspect ratio to pick which
- *      remaining orientations are even possible, instead of blindly trying all
- *      three:
- *        • Landscape render → the only other sensible orientation is 180°
- *          (upside-down). One extra pass.
- *        • Portrait render  → the form was scanned sideways, so upright is 90°
- *          or 270°. Two extra passes (in parallel); 180° can't be right.
+ *   2. If that pass reads poorly, fall back to a sweep limited by the render's
+ *      aspect ratio — 0° (if not already tried) plus 180° for a landscape
+ *      render, or 90°/270° for a portrait one (scanned sideways). We keep the
+ *      best-reading orientation and remember it for the next page.
  *
- * So a rotated page costs ≤3 passes instead of 4, and the common upright page
- * stays at one — without ever assuming a form is landscape. The chosen rotation
- * (a counter-clockwise jimp angle) is returned so the caller can show and save
- * the page upright.
+ * The chosen rotation (a counter-clockwise jimp angle) is returned so the
+ * caller can show and save the page upright.
  *
  * @param {Buffer} imageBuffer
  * @returns {Promise<{text: string, confidence: number, rotation: number}>}
  */
+let lastGoodRotation = 0;
+
+function readsWell(r) {
+  return r.fields >= 2 || r.confidence >= 68;
+}
+
 async function ocrImage(imageBuffer) {
   const scheduler = await getScheduler();
 
-  const at0 = await recognizeScored(scheduler, imageBuffer, 0);
-  if (at0.fields >= 2 || at0.confidence >= 68) {
-    return { text: at0.text, confidence: at0.confidence, rotation: 0 };
+  // 1) Try the orientation that worked for the previous page(s).
+  const first = await recognizeScored(scheduler, imageBuffer, lastGoodRotation);
+  if (readsWell(first)) {
+    lastGoodRotation = first.rotation;
+    return { text: first.text, confidence: first.confidence, rotation: first.rotation };
   }
 
+  // 2) Fall back to an aspect-limited sweep of the still-plausible orientations.
   const { width, height } = await imageSize(imageBuffer);
-  const others = width >= height
-    ? [180]        // landscape → only upside-down is left to check
-    : [90, 270];   // portrait → scanned sideways, upright is 90° or 270°
+  const candidates = new Set(width >= height ? [0, 180] : [0, 90, 270]);
+  candidates.delete(lastGoodRotation); // already tried in step 1
   const results = await Promise.all(
-    others.map((deg) => recognizeScored(scheduler, imageBuffer, deg)));
+    [...candidates].map((deg) => recognizeScored(scheduler, imageBuffer, deg)));
 
-  let best = at0;
+  let best = first;
   for (const r of results) if (r.score > best.score) best = r;
+  lastGoodRotation = best.rotation;
   return { text: best.text, confidence: best.confidence, rotation: best.rotation };
 }
 
