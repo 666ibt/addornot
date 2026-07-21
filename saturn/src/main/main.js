@@ -486,9 +486,9 @@ ipcMain.handle('merge:save', async (_e, { pages, outputDir, name }) => {
 
 ipcMain.handle('img:pick', async () => {
   const res = await dialog.showOpenDialog(mainWindow, {
-    title: 'Выберите изображения (JPG, PNG)',
+    title: 'Выберите изображения (JPG, PNG, TIFF)',
     properties: ['openFile', 'multiSelections'],
-    filters: [{ name: 'Изображения', extensions: ['jpg', 'jpeg', 'png'] }],
+    filters: [{ name: 'Изображения', extensions: ['jpg', 'jpeg', 'png', 'tif', 'tiff'] }],
   });
   if (res.canceled) return [];
   // Return a small preview + default name for each image.

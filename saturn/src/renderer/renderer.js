@@ -1116,7 +1116,7 @@ function wireDropzone() {
     e.preventDefault();
     const files = [...(e.dataTransfer?.files || [])];
     if (state.view === 'img') {
-      const imgs = files.filter((f) => /\.(jpe?g|png)$/i.test(f.name)).map((f) => f.path).filter(Boolean);
+      const imgs = files.filter((f) => /\.(jpe?g|png|tiff?)$/i.test(f.name)).map((f) => f.path).filter(Boolean);
       // Dropped image paths need previews; route through the same handler as the picker.
       if (imgs.length) imgShow(imgs.map((p) => ({ filePath: p, fileName: p.split(/[\\/]/).pop(), thumb: '' })));
     } else if (state.view === 'merge') {

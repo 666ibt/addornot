@@ -99,33 +99,69 @@ async function splitPage(filePath, pageIndex, outPath, rotation = 0) {
 // Image -> PDF
 // ---------------------------------------------------------------------------
 
-async function embedImage(doc, imagePath) {
+/**
+ * Decode an image file into raw PNG buffers that pdf-lib can embed.
+ * PNG and (baseline) JPEG are returned untouched — pdf-lib embeds them
+ * directly, preserving quality. TIFF is not embeddable by pdf-lib, so it is
+ * decoded to PNG. A TIFF may hold several pages (typical for scanned
+ * documents), so EVERY page is returned, in order.
+ *
+ * @returns {Promise<{fmt: 'png'|'jpg', bytes: Buffer}[]>} one entry per page
+ */
+async function imageToPngBuffers(imagePath) {
   const bytes = await fs.readFile(imagePath);
   const ext = path.extname(imagePath).toLowerCase();
-  if (ext === '.png') return doc.embedPng(bytes);
-  // .jpg/.jpeg (pdf-lib embeds baseline JPEG)
-  return doc.embedJpg(bytes);
+
+  if (ext === '.png') return [{ fmt: 'png', bytes }];
+  if (ext === '.jpg' || ext === '.jpeg') return [{ fmt: 'jpg', bytes }];
+
+  if (ext === '.tif' || ext === '.tiff') {
+    const UTIF = require('utif2');
+    const Jimp = require('jimp');
+    const ifds = UTIF.decode(bytes);       // one IFD per page
+    if (!ifds.length) throw new Error('TIFF не содержит страниц.');
+    const pages = [];
+    for (const ifd of ifds) {
+      UTIF.decodeImage(bytes, ifd);        // fills ifd with pixel data
+      const rgba = UTIF.toRGBA8(ifd);      // Uint8Array, width*height*4
+      const img = await new Promise((resolve, reject) =>
+        new Jimp(ifd.width, ifd.height, (err, image) => (err ? reject(err) : resolve(image))));
+      img.bitmap.data = Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength);
+      pages.push({ fmt: 'png', bytes: await img.getBufferAsync(Jimp.MIME_PNG) });
+    }
+    return pages;
+  }
+
+  // Unknown extension: let Jimp try (bmp/gif…), fall back to PNG.
+  const Jimp = require('jimp');
+  const img = await Jimp.read(bytes);
+  return [{ fmt: 'png', bytes: await img.getBufferAsync(Jimp.MIME_PNG) }];
 }
 
-function addImagePage(doc, img) {
-  const page = doc.addPage([img.width, img.height]);
-  page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+/** Embed one image file's page(s) into `doc`, one PDF page per image page. */
+async function addImageFilePages(doc, imagePath) {
+  const pages = await imageToPngBuffers(imagePath);
+  for (const { fmt, bytes } of pages) {
+    const img = fmt === 'png' ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+    const page = doc.addPage([img.width, img.height]);
+    page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+  }
 }
 
-/** Write one image as a single-page PDF. */
+/** Write one image as a PDF (a multi-page TIFF yields a multi-page PDF). */
 async function imageToPdf(imagePath, outPath) {
   const doc = await PDFDocument.create();
-  addImagePage(doc, await embedImage(doc, imagePath));
+  await addImageFilePages(doc, imagePath);
   const bytes = await doc.save();
   await fs.mkdir(path.dirname(outPath), { recursive: true });
   await fs.writeFile(outPath, bytes);
   return outPath;
 }
 
-/** Combine several images into one multi-page PDF (one image per page). */
+/** Combine several images into one PDF (one page per image, TIFF pages kept). */
 async function imagesToPdf(imagePaths, outPath) {
   const doc = await PDFDocument.create();
-  for (const p of imagePaths) addImagePage(doc, await embedImage(doc, p));
+  for (const p of imagePaths) await addImageFilePages(doc, p);
   const bytes = await doc.save();
   await fs.mkdir(path.dirname(outPath), { recursive: true });
   await fs.writeFile(outPath, bytes);
