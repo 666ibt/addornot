@@ -8,6 +8,63 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <!-- Startup loader: iridescent Saturn logo shown until the UI is ready. -->
+    <div id="splash" class="splash">
+      <div class="splash-inner">
+        <span class="splash-logo">
+          <svg width="140" height="140" viewBox="0 0 200 200" fill="none"
+               xmlns="http://www.w3.org/2000/svg" aria-label="Загрузка Saturn">
+            <defs>
+              <!-- Planet fill: slowly cycles through the app palette -->
+              <linearGradient id="spPlanet" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#55b0ec">
+                  <animate attributeName="stop-color"
+                    values="#55b0ec;#8bc53f;#2f8ed6;#55b0ec" dur="3.6s" repeatCount="indefinite"/>
+                </stop>
+                <stop offset="1" stop-color="#2f8ed6">
+                  <animate attributeName="stop-color"
+                    values="#2f8ed6;#55b0ec;#8bc53f;#2f8ed6" dur="3.6s" repeatCount="indefinite"/>
+                </stop>
+              </linearGradient>
+              <!-- Ring: colours flow around it (rotating gradient axis) for the
+                   "переливающийся" shimmer, plus a gentle stop-colour cycle. -->
+              <linearGradient id="spRing" gradientUnits="userSpaceOnUse"
+                              x1="-95" y1="-95" x2="95" y2="95">
+                <stop offset="0" stop-color="#8bc53f">
+                  <animate attributeName="stop-color"
+                    values="#8bc53f;#55b0ec;#2f8ed6;#8bc53f" dur="3s" repeatCount="indefinite"/>
+                </stop>
+                <stop offset=".5" stop-color="#55b0ec">
+                  <animate attributeName="stop-color"
+                    values="#55b0ec;#2f8ed6;#8bc53f;#55b0ec" dur="3s" repeatCount="indefinite"/>
+                </stop>
+                <stop offset="1" stop-color="#2f8ed6">
+                  <animate attributeName="stop-color"
+                    values="#2f8ed6;#8bc53f;#55b0ec;#2f8ed6" dur="3s" repeatCount="indefinite"/>
+                </stop>
+                <animateTransform attributeName="gradientTransform" type="rotate"
+                  from="0 0 0" to="360 0 0" dur="4.5s" repeatCount="indefinite"/>
+              </linearGradient>
+              <radialGradient id="spGlow" cx=".5" cy=".5" r=".5">
+                <stop offset="0" stop-color="#3b82f6" stop-opacity=".38"/>
+                <stop offset="1" stop-color="#3b82f6" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+            <circle class="splash-glow" cx="100" cy="100" r="96" fill="url(#spGlow)"/>
+            <g transform="translate(100 100)">
+              <g transform="rotate(-22)">
+                <ellipse cx="0" cy="0" rx="87" ry="34" fill="none"
+                         stroke="url(#spRing)" stroke-width="12.3"/>
+              </g>
+              <circle cx="0" cy="0" r="43.7" fill="url(#spPlanet)"/>
+            </g>
+          </svg>
+        </span>
+        <div class="splash-word">SATURN</div>
+        <div class="splash-hint">Загрузка…</div>
+      </div>
+    </div>
+
     <header class="topbar">
       <div class="brand">
         <span class="logo" id="appLogo">

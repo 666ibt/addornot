@@ -34,6 +34,42 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: #454f5c; background-clip: padding-box; }
 ::-webkit-scrollbar-corner { background: transparent; }
 
+/* Startup loader ---------------------------------------------------------- */
+.splash {
+  position: fixed; inset: 0; z-index: 10000;
+  display: flex; align-items: center; justify-content: center;
+  /* subtle depth: app bg with a faint blue glow behind the mark */
+  background:
+    radial-gradient(60% 55% at 50% 42%, rgba(59,130,246,.12), transparent 70%),
+    var(--bg);
+  opacity: 1; transition: opacity .45s ease;
+}
+.splash.hide { opacity: 0; pointer-events: none; }
+.splash-inner {
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+  animation: splashRise .6s ease both;
+}
+.splash-logo svg { display: block; animation: splashFloat 3.4s ease-in-out infinite; }
+.splash-glow { animation: splashPulse 2.4s ease-in-out infinite; transform-origin: 100px 100px; }
+.splash-word {
+  font-size: 30px; font-weight: 800; letter-spacing: 5px; text-transform: uppercase;
+  /* light sweep across the letters = the "переливающийся" shimmer */
+  background: linear-gradient(100deg,
+    #6b7787 0%, #6b7787 38%, #ffffff 50%, #6b7787 62%, #6b7787 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  animation: splashSheen 2.6s linear infinite;
+}
+.splash-hint { color: var(--muted); font-size: 12.5px; letter-spacing: .5px; }
+@keyframes splashRise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes splashFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@keyframes splashPulse { 0%, 100% { opacity: .55; transform: scale(.92); } 50% { opacity: 1; transform: scale(1.06); } }
+@keyframes splashSheen { 0% { background-position: 140% 0; } 100% { background-position: -40% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .splash-inner, .splash-logo svg, .splash-glow, .splash-word { animation: none; }
+}
+
 .hidden { display: none !important; }
 .muted { color: var(--muted); }
 .spacer { flex: 1; }

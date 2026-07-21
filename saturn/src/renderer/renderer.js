@@ -21,11 +21,31 @@ function showFatal(message) {
     (document.body || document.documentElement).appendChild(el);
   }
   el.textContent = '⚠ ' + message;
+  if (typeof hideSplash === 'function') hideSplash(); // never hide errors behind the loader
 }
 window.addEventListener('error', (e) =>
   showFatal('Ошибка интерфейса: ' + (e.message || e.error)));
 window.addEventListener('unhandledrejection', (e) =>
   showFatal('Ошибка: ' + (e.reason && (e.reason.message || e.reason))));
+
+// Startup loader: keep the animated logo on screen for at least a moment so it
+// doesn't flash, then fade it out. Idempotent, and revealed on any fatal error.
+const SPLASH_MIN_MS = 900;
+const splashStart = Date.now();
+let splashHidden = false;
+function hideSplash() {
+  if (splashHidden) return;
+  splashHidden = true;
+  const el = document.getElementById('splash');
+  if (!el) return;
+  const wait = Math.max(0, SPLASH_MIN_MS - (Date.now() - splashStart));
+  setTimeout(() => {
+    el.classList.add('hide');
+    setTimeout(() => el.remove(), 500); // after the CSS fade
+  }, wait);
+}
+// Safety net: never let the loader get stuck, whatever happens during init.
+setTimeout(hideSplash, 8000);
 
 const TOOLS = {
   ttn: {
@@ -1218,5 +1238,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   } catch (err) {
     showFatal('Не удалось загрузить настройки: ' + (err.message || err));
   }
+
+  hideSplash(); // UI is ready — fade the loader out
 });
 })();
