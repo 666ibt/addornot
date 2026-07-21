@@ -174,6 +174,22 @@ test('ST contract when № is OCR-glued as "NeST"', () => {
     'ST-539/25-K');
 });
 
+test('ST contract when "ST" prefix is OCR-read as digits "57"', () => {
+  // real scan (1999_NA): «Договор №ST-306/25-К» came out as "№57-306/25-К"
+  assert.equal(extractDogovor('Коетрант Договор №57-306/25-К от 26.05.2025').value,
+    'ST-306/25-K');
+});
+
+test('ST contract when "ST" prefix is OCR-read as digits "51"', () => {
+  // real scan (2782_NA): «Договор №ST-437/25-К» came out as "№51-437/25-К"
+  assert.equal(extractDogovor('Контракт - Договор №51-437/25-К-от 31:07.2025').value,
+    'ST-437/25-K');
+});
+
+test('ST Cyrillic «К» suffix is Latinized to K', () => {
+  assert.equal(extractDogovor('Договор NeST-163/25-К').value, 'ST-163/25-K');
+});
+
 test('FNPZ: ST contract -> filename form', () => {
   assert.equal(makeFilename({ nakladnaya: '80130800', dogovor: 'ST-248/26-KS' }),
     '80130800_ST-248-26-KS.pdf');
