@@ -137,10 +137,12 @@ async function recognizeScored(scheduler, buffer, deg) {
  *      which also serves the common upright case and both form shapes
  *      (landscape ТТН, portrait FNPZ "Накладная на отпуск материалов").
  *
- *   2. If that pass reads poorly, fall back to a sweep limited by the render's
- *      aspect ratio — 0° (if not already tried) plus 180° for a landscape
- *      render, or 90°/270° for a portrait one (scanned sideways). We keep the
- *      best-reading orientation and remember it for the next page.
+ *   2. Accept that pass ONLY if it actually extracted a field (накладная or
+ *      договор). Extraction is the ground truth that the page is the right way
+ *      up — high OCR "confidence" is not: a sideways page can still read
+ *      confidently, and trusting it would save garbage AND poison the memory
+ *      for the rest of the batch. If nothing was extracted, sweep the other
+ *      plausible orientations (limited by aspect ratio) and keep the best.
  *
  * The chosen rotation (a counter-clockwise jimp angle) is returned so the
  * caller can show and save the page upright.
@@ -150,21 +152,18 @@ async function recognizeScored(scheduler, buffer, deg) {
  */
 let lastGoodRotation = 0;
 
-function readsWell(r) {
-  return r.fields >= 2 || r.confidence >= 68;
-}
-
 async function ocrImage(imageBuffer) {
   const scheduler = await getScheduler();
 
   // 1) Try the orientation that worked for the previous page(s).
   const first = await recognizeScored(scheduler, imageBuffer, lastGoodRotation);
-  if (readsWell(first)) {
+  if (first.fields >= 1) {
     lastGoodRotation = first.rotation;
     return { text: first.text, confidence: first.confidence, rotation: first.rotation };
   }
 
-  // 2) Fall back to an aspect-limited sweep of the still-plausible orientations.
+  // 2) Nothing extracted → sweep the still-plausible orientations and pick the
+  //    best-reading one (by fields, then confidence).
   const { width, height } = await imageSize(imageBuffer);
   const candidates = new Set(width >= height ? [0, 180] : [0, 90, 270]);
   candidates.delete(lastGoodRotation); // already tried in step 1
@@ -173,7 +172,9 @@ async function ocrImage(imageBuffer) {
 
   let best = first;
   for (const r of results) if (r.score > best.score) best = r;
-  lastGoodRotation = best.rotation;
+  // Only remember an orientation that actually yielded a field, so a blank or
+  // unreadable page can't set a bad hint for the next one.
+  if (best.fields >= 1) lastGoodRotation = best.rotation;
   return { text: best.text, confidence: best.confidence, rotation: best.rotation };
 }
 
