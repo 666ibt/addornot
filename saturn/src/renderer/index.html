@@ -56,6 +56,11 @@
           <span class="tile-title">Фото → PDF</span>
           <span class="tile-desc">JPG/PNG в PDF: объединить в один файл или сделать по одному</span>
         </button>
+        <button class="tile" data-tool="merge">
+          <span class="tile-icon">📎</span>
+          <span class="tile-title">Объединить PDF</span>
+          <span class="tile-desc">Несколько PDF в один файл: перетаскивайте страницы в нужном порядке и задайте имя</span>
+        </button>
         <button class="tile" data-tool="approval">
           <span class="tile-icon">🏷️</span>
           <span class="tile-title">Определитель листов согласования</span>
@@ -273,6 +278,42 @@
 
         <div id="imgCards" class="cards"></div>
         <div id="imgCount" class="result-count hidden"></div>
+      </section>
+    </section>
+
+    <!-- Merge PDFs tool -->
+    <section id="mergeView" class="hidden">
+      <section id="mergeDrop" class="dropzone">
+        <div class="dz-inner">
+          <div class="dz-icon">📎⬇️</div>
+          <p><b>Перетащите сюда PDF-файлы</b> или</p>
+          <button id="mergePickBtn" class="primary">Выбрать PDF…</button>
+          <p class="hint">Страницы всех файлов появятся ниже — расставьте их в нужном порядке</p>
+        </div>
+      </section>
+
+      <section id="mergeArea" class="hidden">
+        <div class="toolbar">
+          <button id="mergeRestartBtn" class="ghost">↺ Начать заново</button>
+          <button id="mergeAddBtn" class="ghost">＋ Добавить PDF…</button>
+          <div class="spacer"></div>
+          <button id="mergePickOutBtn" class="ghost">Папка вывода…</button>
+          <button id="mergeSaveBtn" class="primary" disabled>📎 Объединить</button>
+        </div>
+
+        <div class="outdir-row">
+          <span class="outdir-label-caption">Папка вывода:</span>
+          <span id="mergeOutDirLabel" class="muted">не выбрана</span>
+        </div>
+
+        <label class="combined-row">
+          <span>Имя итогового PDF:</span>
+          <input id="mergeName" value="merged" />
+        </label>
+
+        <p class="hint" style="margin:0 0 12px">Перетаскивайте карточки или пользуйтесь стрелками, чтобы задать порядок страниц.</p>
+        <div id="mergeCards" class="cards"></div>
+        <div id="mergeCount" class="result-count hidden"></div>
       </section>
     </section>
 

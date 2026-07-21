@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs/promises');
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 
-const { renderSinglePage, pageCount, splitPage, imageToPdf, imagesToPdf } = require('./pdf');
+const { renderSinglePage, pageCount, splitPage, imageToPdf, imagesToPdf, mergePages } = require('./pdf');
 const {
   ocrImage, ocrPlain, cropTop, rotateBuffer, jimpToPdfRotation, workerCount,
   terminate: terminateOcr,
@@ -427,6 +427,57 @@ ipcMain.handle('process:saveOne', async (_e, { jobId, pageId, outputDir, name })
   await splitPage(page.filePath, page.pageIndex, outPath, pdfRotation);
   setSettings({ lastOutputDir: outputDir });
   return { pageId, name: finalName, outPath, ok: true };
+});
+
+// ---------------------------------------------------------------------------
+// IPC: Merge PDFs tool
+// ---------------------------------------------------------------------------
+
+// Pick PDF files to merge. Returns just the paths; pages are loaded separately.
+ipcMain.handle('merge:pick', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Выберите PDF-файлы для объединения',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  });
+  return res.canceled ? [] : res.filePaths;
+});
+
+// Expand the given PDF paths into a flat, ordered list of pages, each with a
+// small preview thumbnail so the user can arrange them.
+ipcMain.handle('merge:pages', async (_e, filePaths) => {
+  const Jimp = require('jimp');
+  const pages = [];
+  for (const filePath of filePaths || []) {
+    let count;
+    try {
+      count = await pageCount(filePath);
+    } catch (err) {
+      send('process:error', { filePath, message: String(err.message || err) });
+      continue;
+    }
+    for (let i = 0; i < count; i++) {
+      let thumb = '';
+      try {
+        const img = await Jimp.read(await renderSinglePage(filePath, i, 1.0));
+        if (img.bitmap.width > 300) img.resize(300, Jimp.AUTO);
+        thumb = `data:image/jpeg;base64,${(await img.quality(70).getBufferAsync(Jimp.MIME_JPEG)).toString('base64')}`;
+      } catch (_) { /* preview optional */ }
+      pages.push({ filePath, fileName: path.basename(filePath), pageIndex: i, thumb });
+    }
+  }
+  return pages;
+});
+
+// Merge the ordered pages into one PDF named `name` in `outputDir`.
+ipcMain.handle('merge:save', async (_e, { pages, outputDir, name }) => {
+  if (!outputDir) throw new Error('Не выбрана папка для сохранения.');
+  if (!pages || !pages.length) throw new Error('Нет страниц для объединения.');
+  const fileName = ensurePdfName(name || 'merged');
+  const outPath = path.join(outputDir, fileName);
+  await mergePages(pages.map((p) => ({ filePath: p.filePath, pageIndex: p.pageIndex })), outPath);
+  setSettings({ lastOutputDir: outputDir });
+  return { outputDir, name: fileName, outPath };
 });
 
 // ---------------------------------------------------------------------------

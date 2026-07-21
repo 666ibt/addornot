@@ -41,6 +41,7 @@ const TOOLS = {
     hint: 'Читает шапку листа согласования и формирует имя: «Лист согласований к Договору № … от … Контрагент».',
   },
   img: { title: 'Фото → PDF', hint: '' },
+  merge: { title: 'Объединить PDF', hint: '' },
 };
 
 const state = {
@@ -102,6 +103,7 @@ function showHome() {
   $('homeView').classList.remove('hidden');
   $('pdfView').classList.add('hidden');
   $('imgView').classList.add('hidden');
+  $('mergeView').classList.add('hidden');
   $('dbView').classList.add('hidden');
   $('contractView').classList.add('hidden');
   $('homeBtn').classList.add('hidden');
@@ -118,14 +120,24 @@ function openTool(tool) {
   if (tool === 'img') {
     state.view = 'img';
     $('pdfView').classList.add('hidden');
+    $('mergeView').classList.add('hidden');
     $('imgView').classList.remove('hidden');
     imgReset();
+    return;
+  }
+  if (tool === 'merge') {
+    state.view = 'merge';
+    $('pdfView').classList.add('hidden');
+    $('imgView').classList.add('hidden');
+    $('mergeView').classList.remove('hidden');
+    mergeReset();
     return;
   }
   // pdf tools
   state.view = 'pdf';
   state.mode = tool;
   $('imgView').classList.add('hidden');
+  $('mergeView').classList.add('hidden');
   $('pdfView').classList.remove('hidden');
   $('dzHint').textContent = TOOLS[tool].hint;
   resetPdf();
@@ -549,6 +561,117 @@ async function imgSave() {
   }
 }
 
+// --- Merge PDFs tool -------------------------------------------------------
+const mergeState = { pages: [], dragFrom: null };
+
+function mergeReset() {
+  mergeState.pages = [];
+  mergeState.dragFrom = null;
+  $('mergeCards').innerHTML = '';
+  $('mergeArea').classList.add('hidden');
+  $('mergeDrop').classList.remove('hidden');
+  updateMergeCount();
+  updateMergeSaveButton();
+}
+
+async function mergePickFiles() {
+  const paths = await api.mergePick();
+  await mergeAddPaths(paths);
+}
+
+async function mergeAddPaths(paths) {
+  if (!paths || !paths.length) return;
+  const busy = mergeState.pages.length === 0;
+  if (busy) toast('Загрузка страниц…', 'ok');
+  const pages = await api.mergePages(paths);
+  if (!pages || !pages.length) return;
+  mergeState.pages.push(...pages);
+  $('mergeDrop').classList.add('hidden');
+  $('mergeArea').classList.remove('hidden');
+  renderMergeCards();
+  updateMergeCount();
+  updateMergeSaveButton();
+}
+
+function moveMergePage(from, to) {
+  const n = mergeState.pages.length;
+  if (to < 0 || to >= n || from === to) return;
+  const [it] = mergeState.pages.splice(from, 1);
+  mergeState.pages.splice(to, 0, it);
+  renderMergeCards();
+}
+
+function renderMergeCards() {
+  const wrap = $('mergeCards');
+  wrap.innerHTML = '';
+  mergeState.pages.forEach((pg, i) => {
+    const card = document.createElement('div');
+    card.className = 'card merge-card';
+    card.draggable = true;
+    card.dataset.i = String(i);
+    card.innerHTML = `
+      <div class="thumb">${pg.thumb ? `<img src="${pg.thumb}" alt="страница" />` : '<span class="placeholder">нет превью</span>'}
+        <span class="order-badge">${i + 1}</span>
+      </div>
+      <div class="body">
+        <div class="meta"><span class="src">${escapeHtml(pg.fileName)} · стр. ${pg.pageIndex + 1}</span></div>
+        <div class="actions merge-actions">
+          <button class="ghost" data-up title="Выше">↑</button>
+          <button class="ghost" data-down title="Ниже">↓</button>
+          <button class="del-one" data-del title="Убрать страницу">🗑</button>
+        </div>
+      </div>`;
+    card.querySelector('[data-up]').addEventListener('click', () => moveMergePage(i, i - 1));
+    card.querySelector('[data-down]').addEventListener('click', () => moveMergePage(i, i + 1));
+    card.querySelector('[data-del]').addEventListener('click', () => {
+      mergeState.pages.splice(i, 1);
+      renderMergeCards();
+      updateMergeCount();
+      updateMergeSaveButton();
+    });
+    card.addEventListener('dragstart', () => { mergeState.dragFrom = i; card.classList.add('dragging'); });
+    card.addEventListener('dragend', () => card.classList.remove('dragging'));
+    card.addEventListener('dragover', (e) => e.preventDefault());
+    card.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (mergeState.dragFrom != null) moveMergePage(mergeState.dragFrom, i);
+      mergeState.dragFrom = null;
+    });
+    wrap.appendChild(card);
+  });
+}
+
+function updateMergeCount() {
+  const n = mergeState.pages.length;
+  const el = $('mergeCount');
+  if (!n) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  el.innerHTML = `Страниц: <b>${n}</b> → 1 PDF`;
+}
+function updateMergeSaveButton() {
+  const btn = $('mergeSaveBtn');
+  if (btn) btn.disabled = mergeState.pages.length === 0 || !state.outputDir;
+}
+
+async function mergeSave() {
+  if (!state.outputDir) return toast('Сначала выберите папку вывода.', 'err');
+  if (!mergeState.pages.length) return;
+  $('mergeSaveBtn').disabled = true;
+  try {
+    const res = await api.mergeSave({
+      pages: mergeState.pages.map((p) => ({ filePath: p.filePath, pageIndex: p.pageIndex })),
+      outputDir: state.outputDir,
+      name: $('mergeName').value,
+    });
+    toast(`Готово: ${res.name} (${mergeState.pages.length} стр.). Папка: ${res.outputDir}`, 'ok');
+    api.openPath(res.outputDir);
+  } catch (err) {
+    toast(`Ошибка объединения: ${err.message || err}`, 'err');
+  } finally {
+    updateMergeSaveButton();
+  }
+}
+
 // --- settings --------------------------------------------------------------
 async function openSettings() {
   const s = await api.getSettings();
@@ -942,12 +1065,13 @@ async function generateContractDocs() {
 // --- output folder (shared) ------------------------------------------------
 function setOutputDir(dir) {
   state.outputDir = dir;
-  for (const id of ['outDirLabel', 'imgOutDirLabel', 'cOutLabel']) {
+  for (const id of ['outDirLabel', 'imgOutDirLabel', 'cOutLabel', 'mergeOutDirLabel']) {
     const el = $(id);
     if (el) { el.textContent = dir; el.classList.remove('muted'); }
   }
   updateSaveButton();
   updateImgSaveButton();
+  updateMergeSaveButton();
 }
 async function pickOutput() {
   const dir = await api.pickOutputDir();
@@ -963,7 +1087,7 @@ async function pickFiles() {
 function wireDropzone() {
   const marks = ['dragenter', 'dragover'];
   const clears = ['dragleave', 'drop'];
-  for (const dz of [$('dropzone'), $('imgDrop')]) {
+  for (const dz of [$('dropzone'), $('imgDrop'), $('mergeDrop')]) {
     marks.forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('drag'); }));
     clears.forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('drag'); }));
   }
@@ -975,6 +1099,9 @@ function wireDropzone() {
       const imgs = files.filter((f) => /\.(jpe?g|png)$/i.test(f.name)).map((f) => f.path).filter(Boolean);
       // Dropped image paths need previews; route through the same handler as the picker.
       if (imgs.length) imgShow(imgs.map((p) => ({ filePath: p, fileName: p.split(/[\\/]/).pop(), thumb: '' })));
+    } else if (state.view === 'merge') {
+      const paths = files.filter((f) => f.name.toLowerCase().endsWith('.pdf')).map((f) => f.path).filter(Boolean);
+      if (paths.length) mergeAddPaths(paths);
     } else if (state.view === 'pdf') {
       const paths = files.filter((f) => f.name.toLowerCase().endsWith('.pdf')).map((f) => f.path).filter(Boolean);
       if (paths.length) startProcessing(paths);
@@ -1064,6 +1191,13 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('imgSaveBtn').addEventListener('click', imgSave);
   $('imgModeOne').addEventListener('click', () => imgSetMode('one'));
   $('imgModeEach').addEventListener('click', () => imgSetMode('each'));
+
+  // Merge tool
+  $('mergePickBtn').addEventListener('click', mergePickFiles);
+  $('mergeAddBtn').addEventListener('click', mergePickFiles);
+  $('mergeRestartBtn').addEventListener('click', mergeReset);
+  $('mergePickOutBtn').addEventListener('click', pickOutput);
+  $('mergeSaveBtn').addEventListener('click', mergeSave);
 
   // Zoom modal
   $('zoomClose').addEventListener('click', closeZoom);

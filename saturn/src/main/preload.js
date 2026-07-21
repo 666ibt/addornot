@@ -31,6 +31,10 @@ contextBridge.exposeInMainWorld('api', {
   pickImages: () => ipcRenderer.invoke('img:pick'),
   saveImages: (payload) => ipcRenderer.invoke('img:save', payload),
 
+  mergePick: () => ipcRenderer.invoke('merge:pick'),
+  mergePages: (filePaths) => ipcRenderer.invoke('merge:pages', filePaths),
+  mergeSave: (payload) => ipcRenderer.invoke('merge:save', payload),
+
   // contract database
   db: {
     all: () => ipcRenderer.invoke('db:all'),

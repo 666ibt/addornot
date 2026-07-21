@@ -132,7 +132,31 @@ async function imagesToPdf(imagePaths, outPath) {
   return outPath;
 }
 
+/**
+ * Merge an ordered list of pages (each from any source PDF) into one file.
+ * @param {{filePath: string, pageIndex: number}[]} pages  in output order
+ * @param {string} outPath
+ */
+async function mergePages(pages, outPath) {
+  const out = await PDFDocument.create();
+  const cache = new Map(); // filePath -> loaded PDFDocument (each source read once)
+  for (const { filePath, pageIndex } of pages) {
+    let src = cache.get(filePath);
+    if (!src) {
+      const bytes = await fs.readFile(filePath);
+      src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+      cache.set(filePath, src);
+    }
+    const [copied] = await out.copyPages(src, [pageIndex]);
+    out.addPage(copied);
+  }
+  const outBytes = await out.save();
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+  await fs.writeFile(outPath, outBytes);
+  return outPath;
+}
+
 module.exports = {
   renderPagesToImages, renderSinglePage, pageCount, splitPage,
-  imageToPdf, imagesToPdf,
+  imageToPdf, imagesToPdf, mergePages,
 };
