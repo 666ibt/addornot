@@ -351,20 +351,28 @@ async function runPool(items, concurrency, fn) {
 // ---------------------------------------------------------------------------
 
 /** Ensure no two outputs collide by suffixing _2, _3, ... */
-function dedupe(name, used) {
-  if (!used.has(name)) {
-    used.add(name);
-    return name;
-  }
+async function fileExists(p) {
+  try { await fs.access(p); return true; } catch (_) { return false; }
+}
+
+/**
+ * Pick a filename in `dir` that collides neither with a name already taken in
+ * this batch (`used`) NOR with a file already on disk, appending _2, _3, … as
+ * needed. The on-disk check is what makes independent single-page saves
+ * ("Сохранить этот") safe: two cards with the same name no longer overwrite —
+ * the second becomes «name_2.pdf» — so nothing is silently lost.
+ */
+async function uniqueName(dir, name, used) {
   const ext = path.extname(name);
   const base = name.slice(0, -ext.length);
-  let n = 2;
-  let candidate = `${base}_${n}${ext}`;
-  while (used.has(candidate)) {
+  let candidate = name;
+  let n = 1;
+  // eslint-disable-next-line no-await-in-loop
+  while ((used && used.has(candidate)) || await fileExists(path.join(dir, candidate))) {
     n += 1;
     candidate = `${base}_${n}${ext}`;
   }
-  used.add(candidate);
+  if (used) used.add(candidate);
   return candidate;
 }
 
@@ -391,7 +399,7 @@ ipcMain.handle('process:save', async (_e, { jobId, outputDir, edits }) => {
   for (const edit of edits || []) {
     const page = pageById.get(edit.pageId);
     if (!page) continue;
-    const finalName = dedupe(ensurePdfName(edit.name ?? page.name), used);
+    const finalName = await uniqueName(outputDir, ensurePdfName(edit.name ?? page.name), used);
     const outPath = path.join(outputDir, finalName);
     try {
       const pdfRotation = jimpToPdfRotation(page.rotation || 0);
@@ -421,7 +429,7 @@ ipcMain.handle('process:saveOne', async (_e, { jobId, pageId, outputDir, name })
   const page = pages.find((p) => p && p.pageId === pageId);
   if (!page) throw new Error('Страница не найдена.');
 
-  const finalName = ensurePdfName(name ?? page.name);
+  const finalName = await uniqueName(outputDir, ensurePdfName(name ?? page.name), null);
   const outPath = path.join(outputDir, finalName);
   const pdfRotation = jimpToPdfRotation(page.rotation || 0);
   await splitPage(page.filePath, page.pageIndex, outPath, pdfRotation);
@@ -512,7 +520,7 @@ ipcMain.handle('img:save', async (_e, { images, mode, outputDir, combinedName })
   const used = new Set();
 
   if (mode === 'one') {
-    const name = dedupe(ensurePdfName(combinedName || 'photos'), used);
+    const name = await uniqueName(outputDir, ensurePdfName(combinedName || 'photos'), used);
     const outPath = path.join(outputDir, name);
     await imagesToPdf(images.map((i) => i.filePath), outPath);
     setSettings({ lastOutputDir: outputDir });
@@ -523,7 +531,7 @@ ipcMain.handle('img:save', async (_e, { images, mode, outputDir, combinedName })
   const results = [];
   for (const im of images) {
     const base = im.name || path.basename(im.filePath, path.extname(im.filePath));
-    const name = dedupe(ensurePdfName(base), used);
+    const name = await uniqueName(outputDir, ensurePdfName(base), used);
     const outPath = path.join(outputDir, name);
     try {
       await imageToPdf(im.filePath, outPath);

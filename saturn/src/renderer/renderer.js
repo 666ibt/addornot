@@ -30,7 +30,7 @@ window.addEventListener('unhandledrejection', (e) =>
 
 // Startup loader: keep the animated logo on screen for at least a moment so it
 // doesn't flash, then fade it out. Idempotent, and revealed on any fatal error.
-const SPLASH_MIN_MS = 900;
+const SPLASH_MIN_MS = 1500;
 const splashStart = Date.now();
 let splashHidden = false;
 function hideSplash() {
@@ -524,6 +524,9 @@ function renderImgCards() {
       <div class="body">
         <div class="meta"><span class="src">${escapeHtml(it.fileName)}</span></div>
         ${nameField}
+        <div class="actions">
+          <button class="save-one" data-save-i>💾 Сохранить этот</button>
+        </div>
       </div>`;
     const inp = card.querySelector('input[data-i]');
     if (inp) inp.addEventListener('input', (e) => {
@@ -531,8 +534,33 @@ function renderImgCards() {
       const el = card.querySelector('.name');
       if (el) el.textContent = ensurePdf(it.editName);
     });
+    const saveBtn = card.querySelector('[data-save-i]');
+    if (saveBtn) saveBtn.addEventListener('click', () => imgSaveOne(i, card));
     wrap.appendChild(card);
   });
+}
+
+// Save a single image as its own PDF, independent of the "Сохранить" batch.
+async function imgSaveOne(i, card) {
+  if (!state.outputDir) return toast('Сначала выберите папку вывода.', 'err');
+  const it = imgState.items[i];
+  if (!it) return;
+  try {
+    const res = await api.saveImages({
+      images: [{ filePath: it.filePath, name: it.editName }],
+      mode: 'each',
+      outputDir: state.outputDir,
+    });
+    const r = res.results && res.results[0];
+    if (r && r.ok) {
+      if (card) card.classList.add('saved');
+      toast(`Сохранён ${r.name}`, 'ok');
+    } else {
+      toast(`Ошибка сохранения: ${(r && r.error) || 'неизвестно'}`, 'err');
+    }
+  } catch (err) {
+    toast(`Ошибка сохранения: ${err.message || err}`, 'err');
+  }
 }
 
 function imgSetMode(mode) {
