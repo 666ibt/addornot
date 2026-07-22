@@ -27,10 +27,34 @@ let schedulerPromise = null;
 let server = null;
 let langBase = null;
 
-/** Number of parallel OCR workers (one per core, capped, leaving one free). */
+/**
+ * How many OCR workers to run in parallel — chosen adaptively so the app is
+ * fast on strong machines yet leaves the computer usable for other work.
+ *
+ * Each worker pins one CPU core at ~100% during a page and needs ~0.6 GB RAM
+ * (rus+eng LSTM). We therefore bound the count by BOTH the CPU and the RAM, and
+ * deliberately leave headroom instead of grabbing every core:
+ *   • 1–2 cores  → 1 worker
+ *   • 3–4 cores  → cores − 2  (a quad-core keeps 2 cores free)
+ *   • 5+ cores   → ~60% of cores, and always keep ≥3 cores free
+ * The result is capped at 8 (diminishing returns past that) and by available
+ * RAM (~0.7 GB per worker, ~1 GB reserved for the OS and the app itself).
+ *
+ * Examples: 2c→1, 4c→2, 6c→3, 8c→4, 12c→7, 16c→8. On a 12-core machine that is
+ * 7 workers busy and 5 cores free, so the user can keep working meanwhile.
+ */
 function workerCount() {
   const cores = (os.cpus() && os.cpus().length) || 2;
-  return Math.max(1, Math.min(cores - 1, 4));
+
+  let byCores;
+  if (cores <= 2) byCores = 1;
+  else if (cores <= 4) byCores = cores - 2;
+  else byCores = Math.min(Math.floor(cores * 0.6), cores - 3);
+
+  const gb = (os.totalmem() || 0) / 1e9;
+  const byMem = Math.max(1, Math.floor((gb - 1) / 0.7));
+
+  return Math.max(1, Math.min(byCores, byMem, 8));
 }
 
 /** Locate the folder that holds rus/eng .traineddata.gz. */
@@ -112,6 +136,19 @@ async function imageSize(buffer) {
   return { width: img.bitmap.width, height: img.bitmap.height };
 }
 
+// Width (px) of the small copy used only to GUESS orientation. The pages are
+// OCR'd for real at full resolution afterwards, so this just has to be legible
+// enough to tell which way up the text reads — small = fast (measured ~2-3x
+// cheaper per pass than full scale).
+const PROBE_WIDTH = 1200;
+
+/** A down-scaled copy of a PNG buffer, capped at PROBE_WIDTH wide. */
+async function downscaleForProbe(buffer) {
+  const img = await Jimp.read(buffer);
+  if (img.bitmap.width > PROBE_WIDTH) img.resize(PROBE_WIDTH, Jimp.AUTO);
+  return img.getBufferAsync(Jimp.MIME_PNG);
+}
+
 async function recognizeScored(scheduler, buffer, deg) {
   const buf = await rotateBuffer(buffer, deg);
   const { data } = await scheduler.addJob('recognize', buf);
@@ -125,24 +162,28 @@ async function recognizeScored(scheduler, buffer, deg) {
 /**
  * Run OCR on a PNG image buffer, auto-correcting page orientation.
  *
- * Full-page OCR has a large fixed cost (~8-14s) that barely shrinks with image
- * size, so the win is in doing as FEW passes as possible — not in shrinking
- * them. Quality is never traded away: every page is still OCR'd at full scale
- * and the orientation is confirmed by how well it actually reads.
+ * The win is in doing as FEW full-resolution passes as possible. Quality is
+ * never traded away: the text we return is always produced at full scale.
  *
- *   1. Try the LAST known-good orientation first. Scans arrive in batches that
- *      share one orientation, so once we've learned it, every following page
- *      reads in a single pass — this is what makes a batch of rotated scans
- *      fast instead of paying a sweep on every page. Starts at 0° (upright),
- *      which also serves the common upright case and both form shapes
- *      (landscape ТТН, portrait FNPZ "Накладная на отпуск материалов").
+ *   1. Try the LAST known-good orientation first, at full resolution. Scans
+ *      arrive in batches that share one orientation, so once we've learned it,
+ *      every following page reads in a single pass — this is what makes a batch
+ *      of rotated scans fast. Starts at 0° (upright), which also serves the
+ *      common upright case and both form shapes (landscape ТТН, portrait FNPZ
+ *      "Накладная на отпуск материалов").
  *
  *   2. Accept that pass ONLY if it actually extracted a field (накладная or
  *      договор). Extraction is the ground truth that the page is the right way
  *      up — high OCR "confidence" is not: a sideways page can still read
  *      confidently, and trusting it would save garbage AND poison the memory
- *      for the rest of the batch. If nothing was extracted, sweep the other
- *      plausible orientations (limited by aspect ratio) and keep the best.
+ *      for the rest of the batch.
+ *
+ *   3. Orientation unknown → don't brute-force full-resolution OCR at every
+ *      angle. First PROBE the plausible angles on a small (down-scaled) copy —
+ *      2-3x cheaper per pass — to guess the orientation, then do ONE full-res
+ *      pass at the winning angle. If that reads a field we're done. Only if the
+ *      probe's pick fails do we fall back to the exhaustive full-res sweep, so
+ *      genuinely hard pages are never worse off than before.
  *
  * The chosen rotation (a counter-clockwise jimp angle) is returned so the
  * caller can show and save the page upright.
@@ -162,13 +203,32 @@ async function ocrImage(imageBuffer) {
     return { text: first.text, confidence: first.confidence, rotation: first.rotation };
   }
 
-  // 2) Nothing extracted → sweep the still-plausible orientations and pick the
-  //    best-reading one (by fields, then confidence).
+  // Candidate angles still plausible for this page shape (minus the one tried).
   const { width, height } = await imageSize(imageBuffer);
-  const candidates = new Set(width >= height ? [0, 180] : [0, 90, 270]);
-  candidates.delete(lastGoodRotation); // already tried in step 1
-  const results = await Promise.all(
-    [...candidates].map((deg) => recognizeScored(scheduler, imageBuffer, deg)));
+  const candidates = [...new Set(width >= height ? [0, 180] : [0, 90, 270])]
+    .filter((deg) => deg !== lastGoodRotation);
+
+  // 2) Cheap low-res probe to rank the candidate orientations.
+  const small = await downscaleForProbe(imageBuffer);
+  const probes = await Promise.all(candidates.map((deg) => recognizeScored(scheduler, small, deg)));
+  probes.sort((a, b) => b.score - a.score);
+
+  // 3) Confirm the probe's best guess with a single full-resolution pass.
+  const results = [first];
+  if (probes.length) {
+    const top = await recognizeScored(scheduler, imageBuffer, probes[0].rotation);
+    results.push(top);
+    if (top.fields >= 1) {
+      lastGoodRotation = top.rotation;
+      return { text: top.text, confidence: top.confidence, rotation: top.rotation };
+    }
+  }
+
+  // 4) Probe's pick didn't read → fall back to the exhaustive full-res sweep of
+  //    the remaining angles (unchanged robustness for hard/rotated pages).
+  const remaining = probes.slice(1).map((p) => p.rotation);
+  const swept = await Promise.all(remaining.map((deg) => recognizeScored(scheduler, imageBuffer, deg)));
+  results.push(...swept);
 
   let best = first;
   for (const r of results) if (r.score > best.score) best = r;
