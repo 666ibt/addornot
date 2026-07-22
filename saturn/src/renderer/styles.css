@@ -208,9 +208,9 @@ button.ghost:hover { border-color: #3a4552; }
   background: var(--accent); color: #fff; font-size: 12px; font-weight: 700;
   padding: 2px 7px; border-radius: 12px;
 }
-.merge-actions { display: flex; gap: 6px; }
+.merge-actions { display: flex; gap: 6px; align-items: center; }
 .merge-actions .ghost { padding: 5px 11px; font-size: 14px; line-height: 1; }
-.merge-actions .del-one { margin-left: auto; }
+.merge-actions .save-one { margin-left: auto; }
 .card.saved .save-one { border-color: var(--green); color: var(--green); }
 
 /* Result count footer */

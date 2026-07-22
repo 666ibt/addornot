@@ -481,7 +481,7 @@ ipcMain.handle('merge:pages', async (_e, filePaths) => {
 ipcMain.handle('merge:save', async (_e, { pages, outputDir, name }) => {
   if (!outputDir) throw new Error('Не выбрана папка для сохранения.');
   if (!pages || !pages.length) throw new Error('Нет страниц для объединения.');
-  const fileName = ensurePdfName(name || 'merged');
+  const fileName = await uniqueName(outputDir, ensurePdfName(name || 'merged'), null);
   const outPath = path.join(outputDir, fileName);
   await mergePages(pages.map((p) => ({ filePath: p.filePath, pageIndex: p.pageIndex })), outPath);
   setSettings({ lastOutputDir: outputDir });

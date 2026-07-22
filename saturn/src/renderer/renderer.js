@@ -666,11 +666,13 @@ function renderMergeCards() {
         <div class="actions merge-actions">
           <button class="ghost" data-up title="Выше">↑</button>
           <button class="ghost" data-down title="Ниже">↓</button>
+          <button class="save-one" data-save title="Сохранить эту страницу отдельным PDF">💾 Сохранить этот</button>
           <button class="del-one" data-del title="Убрать страницу">🗑</button>
         </div>
       </div>`;
     card.querySelector('[data-up]').addEventListener('click', () => moveMergePage(i, i - 1));
     card.querySelector('[data-down]').addEventListener('click', () => moveMergePage(i, i + 1));
+    card.querySelector('[data-save]').addEventListener('click', () => mergeSaveOne(i, card));
     card.querySelector('[data-del]').addEventListener('click', () => {
       mergeState.pages.splice(i, 1);
       renderMergeCards();
@@ -717,6 +719,26 @@ async function mergeSave() {
     toast(`Ошибка объединения: ${err.message || err}`, 'err');
   } finally {
     updateMergeSaveButton();
+  }
+}
+
+// Save a single page from the merge list as its own one-page PDF, without
+// building the combined file. Named after the source file + page number.
+async function mergeSaveOne(i, card) {
+  if (!state.outputDir) return toast('Сначала выберите папку вывода.', 'err');
+  const pg = mergeState.pages[i];
+  if (!pg) return;
+  const base = (pg.fileName || 'page').replace(/\.[^.]+$/, '');
+  try {
+    const res = await api.mergeSave({
+      pages: [{ filePath: pg.filePath, pageIndex: pg.pageIndex }],
+      outputDir: state.outputDir,
+      name: `${base}_стр${pg.pageIndex + 1}`,
+    });
+    if (card) card.classList.add('saved');
+    toast(`Сохранён ${res.name}`, 'ok');
+  } catch (err) {
+    toast(`Ошибка сохранения: ${err.message || err}`, 'err');
   }
 }
 
