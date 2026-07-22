@@ -140,6 +140,23 @@ test('two-letter border noise ("№ 656 ЧЩ") is not taken as a suffix', () => 
   assert.equal(extractNakladnaya('ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ № 656 ЧЩ').value, '656');
 });
 
+test('OCR-split invoice number ("№ 31 68") is rejoined to 3168', () => {
+  // real scan (31_NA / merged3mixedrotation стр.140): «НАКЛАДНАЯ № 3168»
+  // came out of Tesseract as "№ 31 68"; the two groups belong to one number.
+  assert.equal(
+    extractNakladnaya('ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ № 31 68').value, '3168');
+});
+
+test('OCR-split invoice number keeps a following "ч" suffix', () => {
+  assert.equal(extractNakladnaya('НАКЛАДНАЯ № 31 68 ч').value, '3168ч');
+});
+
+test('a date after the invoice number is NOT merged into it', () => {
+  // «№ 3168 08.09.2025» — the date must not become part of the number.
+  assert.equal(
+    extractNakladnaya('ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ № 3168 08.09.2025').value, '3168');
+});
+
 test('strips leading zeros', () => {
   assert.equal(extractNakladnaya('Накладная № 007').value, '7');
 });
