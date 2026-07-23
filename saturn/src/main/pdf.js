@@ -6,7 +6,7 @@ const { PDFDocument, degrees } = require('pdf-lib');
 
 /**
  * PDF helpers:
- *   - renderPagesToImages: rasterize each page to a PNG buffer (for OCR / AI).
+ *   - renderSinglePage: rasterize one page to a PNG buffer (for OCR / AI / zoom).
  *     Uses mupdf (WebAssembly) so there are NO native/system dependencies —
  *     the app installs and runs the same on Windows, macOS and Linux.
  *   - splitPage: copy a single page from the source PDF into a new one-page PDF
@@ -21,31 +21,9 @@ function getMupdf() {
 }
 
 /**
- * Rasterize every page of a PDF to a PNG buffer.
- * @param {string} filePath
- * @param {number} scale  render scale (higher = better OCR, bigger buffers)
- * @returns {Promise<Buffer[]>}
- */
-async function renderPagesToImages(filePath, scale = 3.2) {
-  const mupdf = await getMupdf();
-  const bytes = await fs.readFile(filePath);
-  const doc = mupdf.Document.openDocument(bytes, 'application/pdf');
-  const count = doc.countPages();
-  const images = [];
-  const matrix = mupdf.Matrix.scale(scale, scale);
-  for (let i = 0; i < count; i++) {
-    const page = doc.loadPage(i);
-    const pix = page.toPixmap(matrix, mupdf.ColorSpace.DeviceRGB, false, true);
-    images.push(Buffer.from(pix.asPNG()));
-    pix.destroy?.();
-    page.destroy?.();
-  }
-  doc.destroy?.();
-  return images;
-}
-
-/**
- * Rasterize a single page to a PNG buffer (used for the on-demand zoom view).
+ * Rasterize a single page to a PNG buffer. Pages are rendered on demand (one at
+ * a time) both for processing and for the zoom view, so a big batch never holds
+ * every page bitmap in memory at once.
  * @param {string} filePath
  * @param {number} pageIndex  0-based
  * @param {number} scale
@@ -193,6 +171,6 @@ async function mergePages(pages, outPath) {
 }
 
 module.exports = {
-  renderPagesToImages, renderSinglePage, pageCount, splitPage,
+  renderSinglePage, pageCount, splitPage,
   imageToPdf, imagesToPdf, mergePages,
 };

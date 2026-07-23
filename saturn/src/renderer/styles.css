@@ -70,6 +70,28 @@ body {
   .splash-inner, .splash-logo svg, .splash-glow, .splash-word { animation: none; }
 }
 
+/* Faint Saturn watermark while a batch is processing (barely visible, never
+   blocks clicks or scrolling — cards keep appearing over it). */
+.proc-loader {
+  position: fixed; inset: 0; z-index: 20; /* above content, below modals(30)/toast(40) */
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none; opacity: 0; transition: opacity .5s ease;
+}
+.proc-loader.on { opacity: 1; }
+.proc-loader svg { opacity: .09; animation: splashFloat 3.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .proc-loader svg { animation: none; } }
+
+/* Staging list: the files chosen before processing starts. */
+.stage-list { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.stage-file {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.stage-file .doc-icon { font-size: 16px; }
+.stage-file .fname-txt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage-file .del-one { flex: none; }
+
 .hidden { display: none !important; }
 .muted { color: var(--muted); }
 .spacer { flex: 1; }

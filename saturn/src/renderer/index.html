@@ -276,6 +276,18 @@
         </div>
       </section>
 
+      <!-- Staging: show the chosen files, let the user add more, then start. -->
+      <section id="stageArea" class="hidden">
+        <div class="toolbar">
+          <button id="stageClearBtn" class="ghost">↺ Очистить</button>
+          <div class="spacer"></div>
+          <button id="stageAddBtn" class="ghost">＋ Добавить PDF…</button>
+          <button id="stageStartBtn" class="primary">▶ Начать обработку</button>
+        </div>
+        <div id="stageCount" class="result-count"></div>
+        <div id="stageList" class="stage-list"></div>
+      </section>
+
       <section id="workarea" class="hidden">
         <div class="toolbar">
           <button id="restartBtn" class="ghost">↺ Начать заново</button>
@@ -444,6 +456,28 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Faint Saturn watermark shown while a batch is being processed. -->
+    <div id="procLoader" class="proc-loader" aria-hidden="true">
+      <svg width="240" height="240" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="plPlanet" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#55b0ec"/><stop offset="1" stop-color="#2f8ed6"/>
+          </linearGradient>
+          <linearGradient id="plRing" gradientUnits="userSpaceOnUse" x1="-95" y1="-95" x2="95" y2="95">
+            <stop offset="0" stop-color="#8bc53f"/><stop offset=".5" stop-color="#55b0ec"/><stop offset="1" stop-color="#2f8ed6"/>
+            <animateTransform attributeName="gradientTransform" type="rotate"
+              from="0 0 0" to="360 0 0" dur="5s" repeatCount="indefinite"/>
+          </linearGradient>
+        </defs>
+        <g transform="translate(100 100)">
+          <g transform="rotate(-22)">
+            <ellipse cx="0" cy="0" rx="87" ry="34" fill="none" stroke="url(#plRing)" stroke-width="12.3"/>
+          </g>
+          <circle cx="0" cy="0" r="43.7" fill="url(#plPlanet)"/>
+        </g>
+      </svg>
     </div>
 
     <div id="toast" class="toast hidden"></div>

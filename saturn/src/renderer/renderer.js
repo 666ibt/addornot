@@ -69,6 +69,7 @@ const state = {
   mode: 'ttn',    // pdf tool: 'ttn' | 'split' | 'approval'
   jobId: null,
   outputDir: '',
+  staged: [],     // file paths chosen, awaiting «Начать обработку»
   pages: new Map(),
   total: 0,
   done: 0,
@@ -119,6 +120,7 @@ function escapeHtml(s) {
 // --- routing ---------------------------------------------------------------
 function showHome() {
   cancelActive();
+  hideProcLoader();
   state.view = 'home';
   $('homeView').classList.remove('hidden');
   $('pdfView').classList.add('hidden');
@@ -167,20 +169,78 @@ function cancelActive() {
   if (state.processing) { try { api.cancel(); } catch (_) {} }
 }
 
+// --- PDF tools: staging (choose files → review → start) --------------------
+// Files are NOT processed on drop/pick. They collect in a staging list so the
+// user can see the selection, add more, then press «Начать обработку».
+function stagePdf(paths) {
+  const added = (paths || []).filter((p) => p && !state.staged.includes(p));
+  if (!added.length && !state.staged.length) return;
+  state.staged.push(...added);
+  $('dropzone').classList.add('hidden');
+  $('workarea').classList.add('hidden');
+  $('stageArea').classList.remove('hidden');
+  renderStage();
+}
+
+function baseName(p) {
+  return String(p).split(/[\\/]/).pop();
+}
+
+function renderStage() {
+  const n = state.staged.length;
+  $('stageCount').innerHTML = `Выбрано: <b>${n}</b> ${pluralFiles(n)}. Добавьте ещё при необходимости и нажмите «Начать обработку».`;
+  const list = $('stageList');
+  list.innerHTML = '';
+  state.staged.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'stage-file';
+    row.innerHTML = `
+      <span class="doc-icon">📄</span>
+      <span class="fname-txt">${escapeHtml(baseName(p))}</span>
+      <button class="del-one" data-i="${i}" title="Убрать из списка">🗑</button>`;
+    row.querySelector('[data-i]').addEventListener('click', () => removeStaged(i));
+    list.appendChild(row);
+  });
+}
+
+function removeStaged(i) {
+  state.staged.splice(i, 1);
+  if (!state.staged.length) return clearStage();
+  renderStage();
+}
+
+function clearStage() {
+  state.staged = [];
+  $('stageArea').classList.add('hidden');
+  $('dropzone').classList.remove('hidden');
+}
+
+async function stageAddFiles() {
+  const files = await api.pickFiles();
+  if (files.length) stagePdf(files);
+}
+
 // --- PDF tools processing --------------------------------------------------
 async function startProcessing(filePaths) {
   if (!filePaths || !filePaths.length) return;
   $('dropzone').classList.add('hidden');
+  $('stageArea').classList.add('hidden');
   $('workarea').classList.remove('hidden');
   $('progressWrap').classList.remove('hidden');
   state.processing = true;
+  showProcLoader();
   updateSaveButton();
   try {
     await api.startProcessing(filePaths, state.mode);
   } catch (err) {
+    state.processing = false;
+    hideProcLoader();
     toast(`Ошибка обработки: ${err.message || err}`, 'err');
   }
 }
+
+function showProcLoader() { $('procLoader').classList.add('on'); }
+function hideProcLoader() { $('procLoader').classList.remove('on'); }
 
 function registerEvents() {
   api.on('process:meta', (p) => {
@@ -207,6 +267,7 @@ function registerEvents() {
   api.on('process:complete', (p) => {
     if (p.jobId !== state.jobId) return;
     state.processing = false;
+    hideProcLoader();
     $('progressWrap').classList.add('hidden');
     updateSaveButton();
     toast('Обработка завершена. Проверьте значения и сохраните.', 'ok');
@@ -416,15 +477,18 @@ function resetPdf() {
   // across batches (big batches were hanging the app on the second run).
   if (state.jobId && api.release) api.release(state.jobId);
   state.jobId = null;
+  state.staged = [];
   state.pages.clear();
   state.total = 0;
   state.done = 0;
   state.processing = false;
   state.zoomPageId = null;
   closeZoom();
+  hideProcLoader();
   $('cards').innerHTML = '';
   $('progressWrap').classList.add('hidden');
   $('workarea').classList.add('hidden');
+  $('stageArea').classList.add('hidden');
   $('dropzone').classList.remove('hidden');
   updateResultCount();
   updateSaveButton();
@@ -1151,7 +1215,7 @@ async function pickOutput() {
 // --- pickers & drag/drop ---------------------------------------------------
 async function pickFiles() {
   const files = await api.pickFiles();
-  if (files.length) startProcessing(files);
+  if (files.length) stagePdf(files);
 }
 
 function wireDropzone() {
@@ -1172,9 +1236,11 @@ function wireDropzone() {
     } else if (state.view === 'merge') {
       const paths = files.filter((f) => f.name.toLowerCase().endsWith('.pdf')).map((f) => f.path).filter(Boolean);
       if (paths.length) mergeAddPaths(paths);
-    } else if (state.view === 'pdf') {
+    } else if (state.view === 'pdf' && !state.processing && state.pages.size === 0) {
+      // Collect dropped PDFs into the staging list (don't start yet); ignore
+      // drops while a batch is running or results are already on screen.
       const paths = files.filter((f) => f.name.toLowerCase().endsWith('.pdf')).map((f) => f.path).filter(Boolean);
-      if (paths.length) startProcessing(paths);
+      if (paths.length) stagePdf(paths);
     }
   });
 }
@@ -1247,6 +1313,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     }));
 
   $('pickBtn').addEventListener('click', pickFiles);
+  $('stageAddBtn').addEventListener('click', stageAddFiles);
+  $('stageClearBtn').addEventListener('click', clearStage);
+  $('stageStartBtn').addEventListener('click', () => startProcessing(state.staged));
   $('restartBtn').addEventListener('click', resetPdf);
   $('pickOutBtn').addEventListener('click', pickOutput);
   $('saveBtn').addEventListener('click', save);
