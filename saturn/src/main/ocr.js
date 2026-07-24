@@ -29,19 +29,20 @@ let langBase = null;
 
 /**
  * How many OCR workers to run in parallel — chosen adaptively so the app is
- * fast on strong machines yet leaves the computer usable for other work.
- *
- * Each worker pins one CPU core at ~100% during a page and needs ~0.6 GB RAM
- * (rus+eng LSTM). We therefore bound the count by BOTH the CPU and the RAM, and
- * deliberately leave headroom instead of grabbing every core:
+ * fast on strong machines yet leaves the computer usable AND, above all, does
+ * not exhaust memory. Each worker is a separate Tesseract WASM instance whose
+ * heap grows with the page it is processing; too many at once can make a
+ * worker's WASM memory fail to grow — surfacing as a hard "memory access out of
+ * bounds" crash. So we stay well within the RAM budget and cap parallelism:
  *   • 1–2 cores  → 1 worker
  *   • 3–4 cores  → cores − 2  (a quad-core keeps 2 cores free)
- *   • 5+ cores   → ~60% of cores, and always keep ≥3 cores free
- * The result is capped at 8 (diminishing returns past that) and by available
- * RAM (~0.7 GB per worker, ~1 GB reserved for the OS and the app itself).
+ *   • 5+ cores   → half the cores, always keeping ≥3 free
+ * capped at 5 overall, and bounded by RAM at a conservative ~1.5 GB per worker
+ * with ~2 GB reserved for the OS and the app (Electron) itself.
  *
- * Examples: 2c→1, 4c→2, 6c→3, 8c→4, 12c→7, 16c→8. On a 12-core machine that is
- * 7 workers busy and 5 cores free, so the user can keep working meanwhile.
+ * Examples (16 GB): 2c→1, 4c→2, 6c→3, 8c→4, 12c→5, 16c→5. On 8 GB a 12-core
+ * machine gets 4. This is intentionally lower than raw core count — stability
+ * first; the fast models already give most of the per-page speedup.
  */
 function workerCount() {
   const cores = (os.cpus() && os.cpus().length) || 2;
@@ -49,12 +50,12 @@ function workerCount() {
   let byCores;
   if (cores <= 2) byCores = 1;
   else if (cores <= 4) byCores = cores - 2;
-  else byCores = Math.min(Math.floor(cores * 0.6), cores - 3);
+  else byCores = Math.min(Math.floor(cores * 0.5), cores - 3);
 
   const gb = (os.totalmem() || 0) / 1e9;
-  const byMem = Math.max(1, Math.floor((gb - 1) / 0.7));
+  const byMem = Math.max(1, Math.floor((gb - 2) / 1.5));
 
-  return Math.max(1, Math.min(byCores, byMem, 8));
+  return Math.max(1, Math.min(byCores, byMem, 5));
 }
 
 /** Locate the folder that holds rus/eng .traineddata.gz. */
@@ -149,6 +150,23 @@ async function downscaleForProbe(buffer) {
   return img.getBufferAsync(Jimp.MIME_PNG);
 }
 
+// Hard ceiling on the longest side of an image handed to Tesseract. A normal
+// A4 page rendered at our scale is ~2700 px, so it passes through untouched;
+// only unusually large pages are shrunk. This bounds each worker's WASM heap so
+// an oversized scan can't trigger a "memory access out of bounds" crash.
+const MAX_OCR_DIM = 3200;
+
+/** Shrink a PNG buffer so its longest side is ≤ MAX_OCR_DIM (else unchanged). */
+async function capForOcr(buffer) {
+  const img = await Jimp.read(buffer);
+  const { width, height } = img.bitmap;
+  const longest = Math.max(width, height);
+  if (longest <= MAX_OCR_DIM) return buffer;
+  const s = MAX_OCR_DIM / longest;
+  img.resize(Math.round(width * s), Math.round(height * s));
+  return img.getBufferAsync(Jimp.MIME_PNG);
+}
+
 async function recognizeScored(scheduler, buffer, deg) {
   const buf = await rotateBuffer(buffer, deg);
   const { data } = await scheduler.addJob('recognize', buf);
@@ -193,8 +211,10 @@ async function recognizeScored(scheduler, buffer, deg) {
  */
 let lastGoodRotation = 0;
 
-async function ocrImage(imageBuffer) {
+async function ocrImage(fullBuffer) {
   const scheduler = await getScheduler();
+  // Bound the image size so a huge page can't overflow a worker's WASM heap.
+  const imageBuffer = await capForOcr(fullBuffer);
 
   // 1) Try the orientation that worked for the previous page(s).
   const first = await recognizeScored(scheduler, imageBuffer, lastGoodRotation);
@@ -246,7 +266,7 @@ function jimpToPdfRotation(jimpDeg) {
 /** Plain OCR of an image buffer (no orientation sweep). */
 async function ocrPlain(imageBuffer) {
   const scheduler = await getScheduler();
-  const { data } = await scheduler.addJob('recognize', imageBuffer);
+  const { data } = await scheduler.addJob('recognize', await capForOcr(imageBuffer));
   return { text: data.text || '', confidence: data.confidence || 0 };
 }
 
