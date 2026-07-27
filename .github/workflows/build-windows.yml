@@ -37,7 +37,7 @@ jobs:
         run: npm install
 
       - name: Run unit tests
-        run: node --test test/extract.test.js test/approval.test.js test/num2words.test.js test/db.test.js test/docx.test.js test/contract.test.js
+        run: node --test test/extract.test.js test/approval.test.js
 
       - name: Build Windows installer
         run: npm run dist:win
@@ -54,14 +54,24 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.5.2
-          name: Saturn v1.5.2
+          tag_name: v1.6.0
+          name: Saturn v1.6.0
           target_commitish: ${{ github.sha }}
           files: saturn/release/*.exe
           body: |
             Готовое приложение для Windows. Node.js и терминал не требуются.
             Словари распознавания (рус+англ) встроены — работает офлайн,
             интернет не нужен.
+
+            **Saturn 1.6.0 — фокус на ТТН и изображениях:**
+            - Индикатор работы теперь показывается во ВСЕХ процессах:
+              обработка ТТН, «Фото → PDF» (в т.ч. по одному), «Объединить PDF»
+              (загрузка страниц и сохранение). Раньше он был только в ТТН.
+            - Убраны разделы **Контрагенты**, **Продукты** и **Оформление
+              договора** — приложение сфокусировано на работе с ТТН и
+              изображениями. Остались: Обработка ТТН, Разделитель PDF,
+              Фото → PDF, Объединить PDF, Определитель листов согласования.
+              Установщик стал легче (без Word-шаблонов и лишних библиотек).
 
             **Saturn 1.5.2 — большие/тяжёлые партии: без сбоев и лагов:**
             - Исправлена главная причина падений и тормозов на тяжёлых
@@ -269,9 +279,9 @@ jobs:
 
             **Два варианта в разделе Assets ниже:**
 
-            - **`Saturn-1.5.2-portable.exe`** — портативная версия.
+            - **`Saturn-1.6.0-portable.exe`** — портативная версия.
               Ничего не устанавливает: скачал и сразу запустил. Рекомендуется.
-            - **`Saturn Setup 1.5.2.exe`** — обычный установщик.
+            - **`Saturn Setup 1.6.0.exe`** — обычный установщик.
 
             При первом запуске Windows покажет SmartScreen («Windows защитила
             ваш компьютер») — приложение не подписано платным сертификатом.
