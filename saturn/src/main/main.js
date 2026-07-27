@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs/promises');
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 
-const { renderSinglePage, pageCount, splitPage, imageToPdf, imagesToPdf, mergePages } = require('./pdf');
+const { renderSinglePage, pageCount, splitPage, imageToPdf, imagesToPdf, mergePages, clearDocCache } = require('./pdf');
 const {
   ocrImage, ocrPlain, cropTop, rotateBuffer, jimpToPdfRotation, workerCount,
   terminate: terminateOcr,
@@ -221,6 +221,7 @@ ipcMain.handle('process:start', async (_e, arg) => {
   // The UI works one job at a time; drop any previous job so memory (and the
   // jobs map) never accumulates across batches.
   jobs.clear();
+  clearDocCache();
   const pages = [];
   jobs.set(jobId, pages);
   cancelRequested = false;
@@ -418,6 +419,7 @@ ipcMain.handle('process:save', async (_e, { jobId, outputDir, edits }) => {
 // accumulate across batches.
 ipcMain.handle('process:release', (_e, jobId) => {
   if (jobId) jobs.delete(jobId); else jobs.clear();
+  clearDocCache(); // free the opened source PDFs from memory
   return { ok: true };
 });
 

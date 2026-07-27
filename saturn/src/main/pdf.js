@@ -20,10 +20,50 @@ function getMupdf() {
   return mupdfPromise;
 }
 
+// Opened-document cache. Rendering used to read AND re-parse the whole PDF for
+// every single page — catastrophic for large multi-page files (a 100-page,
+// 80 MB scan meant ~8 GB of repeated reads/parses, which lagged the UI and
+// starved the OCR workers of memory until one crashed). We now read+parse each
+// file ONCE and reuse the open document. Bounded LRU keeps memory in check; the
+// max is kept above the number of pages rendered concurrently (workerCount ≤ 5)
+// so a document still in use is never evicted mid-render.
+const DOC_CACHE_MAX = 6;
+const docCache = new Map(); // filePath -> Promise<mupdf document>
+
+function openDoc(filePath) {
+  const existing = docCache.get(filePath);
+  if (existing) { // LRU touch
+    docCache.delete(filePath);
+    docCache.set(filePath, existing);
+    return existing;
+  }
+  const p = (async () => {
+    const mupdf = await getMupdf();
+    const bytes = await fs.readFile(filePath);
+    return mupdf.Document.openDocument(bytes, 'application/pdf');
+  })();
+  docCache.set(filePath, p);
+  while (docCache.size > DOC_CACHE_MAX) {
+    const oldest = docCache.keys().next().value; // least-recently used
+    const oldP = docCache.get(oldest);
+    docCache.delete(oldest);
+    Promise.resolve(oldP).then((d) => { try { d.destroy?.(); } catch (_) { /* ignore */ } });
+  }
+  return p;
+}
+
+/** Drop and free every cached document (called when a job ends). */
+function clearDocCache() {
+  for (const p of docCache.values()) {
+    Promise.resolve(p).then((d) => { try { d.destroy?.(); } catch (_) { /* ignore */ } });
+  }
+  docCache.clear();
+}
+
 /**
- * Rasterize a single page to a PNG buffer. Pages are rendered on demand (one at
- * a time) both for processing and for the zoom view, so a big batch never holds
- * every page bitmap in memory at once.
+ * Rasterize a single page to a PNG buffer, reusing the file's cached document.
+ * The render block itself is synchronous (no await between loadPage and asPNG),
+ * so concurrent calls sharing one document can't interleave and corrupt it.
  * @param {string} filePath
  * @param {number} pageIndex  0-based
  * @param {number} scale
@@ -31,22 +71,19 @@ function getMupdf() {
  */
 async function renderSinglePage(filePath, pageIndex, scale = 3.2) {
   const mupdf = await getMupdf();
-  const bytes = await fs.readFile(filePath);
-  const doc = mupdf.Document.openDocument(bytes, 'application/pdf');
+  const doc = await openDoc(filePath);
   const page = doc.loadPage(pageIndex);
   const pix = page.toPixmap(mupdf.Matrix.scale(scale, scale), mupdf.ColorSpace.DeviceRGB, false, true);
   const png = Buffer.from(pix.asPNG());
   pix.destroy?.();
   page.destroy?.();
-  doc.destroy?.();
-  return png;
+  return png; // NB: the document is cached/reused — do NOT destroy it here
 }
 
-/** Number of pages in a PDF. */
+/** Number of pages in a PDF (via the cached mupdf document). */
 async function pageCount(filePath) {
-  const bytes = await fs.readFile(filePath);
-  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
-  return doc.getPageCount();
+  const doc = await openDoc(filePath);
+  return doc.countPages();
 }
 
 /**
@@ -172,5 +209,5 @@ async function mergePages(pages, outPath) {
 
 module.exports = {
   renderSinglePage, pageCount, splitPage,
-  imageToPdf, imagesToPdf, mergePages,
+  imageToPdf, imagesToPdf, mergePages, clearDocCache,
 };

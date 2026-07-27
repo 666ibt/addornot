@@ -268,6 +268,7 @@ function registerEvents() {
     if (p.jobId !== state.jobId) return;
     state.processing = false;
     hideProcLoader();
+    sortCards(); // low → medium → high, then page order (done once, not per card)
     $('progressWrap').classList.add('hidden');
     updateSaveButton();
     toast('Обработка завершена. Проверьте значения и сохраните.', 'ok');
@@ -287,19 +288,21 @@ function pageIndexOf(pageId) {
 }
 // Cards are ordered by confidence first (низкая → средняя → высокая) so the
 // pages that need checking float to the top, then by original page order.
+// During processing cards are simply appended (O(1) each — scanning all cards
+// on every insert made big batches lag badly, O(n²)); the final order is
+// applied once with sortCards() when the batch finishes.
 const CONF_RANK = { low: 0, medium: 1, high: 2 };
 function confRank(rec) {
   return CONF_RANK[(rec && rec.confidence) || 'low'] ?? 0;
 }
-function insertCardInOrder(card) {
-  const rank = Number(card.dataset.confrank);
-  const idx = Number(card.dataset.index);
+function sortCards() {
   const cards = $('cards');
-  const after = [...cards.children].find((c) => {
-    const r = Number(c.dataset.confrank);
-    return r > rank || (r === rank && Number(c.dataset.index) > idx);
-  });
-  cards.insertBefore(card, after || null);
+  const ordered = [...cards.children].sort((a, b) =>
+    (Number(a.dataset.confrank) - Number(b.dataset.confrank))
+    || (Number(a.dataset.index) - Number(b.dataset.index)));
+  const frag = document.createDocumentFragment();
+  ordered.forEach((c) => frag.appendChild(c));
+  cards.appendChild(frag);
 }
 
 function fieldsHtml(rec) {
@@ -329,7 +332,7 @@ function renderCard(pageId) {
     card.dataset.page = pageId;
     card.dataset.index = String(pageIndexOf(pageId));
     card.dataset.confrank = String(confRank(rec));
-    insertCardInOrder(card);
+    $('cards').appendChild(card); // append now; sortCards() orders once at the end
   }
   const conf = rec.confidence || 'low';
   const confLabel = { high: 'высокая', medium: 'средняя', low: 'низкая' }[conf] || conf;
