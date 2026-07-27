@@ -157,6 +157,20 @@ test('a date after the invoice number is NOT merged into it', () => {
     extractNakladnaya('ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ № 3168 08.09.2025').value, '3168');
 });
 
+test('slash sub-index "779/2" → dash with the index decremented (779-1)', () => {
+  assert.equal(extractNakladnaya('ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ № 779/2').value, '779-1');
+  assert.equal(extractNakladnaya('НАКЛАДНАЯ № 779/3').value, '779-2');
+  assert.equal(extractNakladnaya('НАКЛАДНАЯ № 779 / 2').value, '779-1'); // OCR spaces
+});
+
+test('slash sub-index "/1" becomes -0', () => {
+  assert.equal(extractNakladnaya('НАКЛАДНАЯ № 779/1').value, '779-0');
+});
+
+test('plain invoice number (no slash) is unaffected', () => {
+  assert.equal(extractNakladnaya('НАКЛАДНАЯ № 779').value, '779');
+});
+
 test('strips leading zeros', () => {
   assert.equal(extractNakladnaya('Накладная № 007').value, '7');
 });
