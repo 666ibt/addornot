@@ -1,0 +1,19 @@
+# runtime artifacts
+events.db
+*.pt
+out_*.mp4
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# large/generated media — keep the repo light. Regenerate fixtures with
+#   python -m scripts.make_synthetic        # shapes crash-test
+#   python -m scripts.make_motion_fixture   # public-image motion fixture
+# Drop your own real clip at data/sample.mp4 (see README).
+data/synthetic_test.mp4
+data/motion_fixture.mp4
+data/sample.mp4
+
+# cached downloads (test image for the motion fixture)
+.cache/
