@@ -70,6 +70,7 @@ const state = {
   jobId: null,
   outputDir: '',
   staged: [],     // file paths chosen, awaiting «Начать обработку»
+  undo: [],       // stack of {label, undo} for «↶ Отменить»
   pages: new Map(),
   total: 0,
   done: 0,
@@ -224,6 +225,7 @@ async function startProcessing(filePaths) {
   $('workarea').classList.remove('hidden');
   $('progressWrap').classList.remove('hidden');
   state.processing = true;
+  clearUndo(); // a fresh batch — old undo entries reference the previous run
   showProcLoader();
   updateSaveButton();
   try {
@@ -370,15 +372,56 @@ function renderCard(pageId) {
   if (delBtn) delBtn.addEventListener('click', () => removePage(pageId));
 }
 
+// --- undo (last action) ----------------------------------------------------
+// A small stack of reversible actions. Each entry knows how to put things back.
+function pushUndo(label, undoFn) {
+  state.undo.push({ label, undo: undoFn });
+  updateUndoButton();
+}
+function performUndo() {
+  const action = state.undo.pop();
+  if (!action) return;
+  action.undo();
+  updateUndoButton();
+  toast(`Отменено: ${action.label}`, 'ok');
+}
+function clearUndo() {
+  state.undo = [];
+  updateUndoButton();
+}
+function updateUndoButton() {
+  const b = $('undoBtn');
+  if (b) b.classList.toggle('hidden', state.undo.length === 0);
+}
+
 // Drop a processed page from the list so «Сохранить всё» skips it. The source
 // PDF is untouched — this only removes the card/record from the review list.
+// Reversible via «↶ Отменить»: the card node and its record are kept so undo
+// can put the card back exactly where it was.
 function removePage(pageId) {
-  state.pages.delete(pageId);
+  const rec = state.pages.get(pageId);
   const card = document.querySelector(`[data-page="${pageId}"]`);
+  const parent = card ? card.parentNode : $('cards');
+  const nextSibling = card ? card.nextSibling : null;
+
+  state.pages.delete(pageId);
   if (card) card.remove();
   if (state.zoomPageId === pageId) { state.zoomPageId = null; closeZoom(); }
   updateResultCount();
   updateSaveButton();
+
+  if (rec) {
+    pushUndo('удаление карточки', () => {
+      state.pages.set(pageId, rec);
+      if (card) {
+        const before = nextSibling && nextSibling.parentNode === parent ? nextSibling : null;
+        parent.insertBefore(card, before); // same spot if the neighbour is still there
+      }
+      updateResultCount();
+      updateSaveButton();
+    });
+    toast('Карточка убрана. «↶ Отменить» — вернуть.', 'ok');
+  }
 }
 
 function updatePreview(card, rec) {
@@ -477,6 +520,7 @@ function resetPdf() {
   if (state.jobId && api.release) api.release(state.jobId);
   state.jobId = null;
   state.staged = [];
+  clearUndo();
   state.pages.clear();
   state.total = 0;
   state.done = 0;
@@ -908,6 +952,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('stageClearBtn').addEventListener('click', clearStage);
   $('stageStartBtn').addEventListener('click', () => startProcessing(state.staged));
   $('restartBtn').addEventListener('click', resetPdf);
+  $('undoBtn').addEventListener('click', performUndo);
   $('pickOutBtn').addEventListener('click', pickOutput);
   $('saveBtn').addEventListener('click', save);
   $('settingsBtn').addEventListener('click', openSettings);
@@ -938,6 +983,13 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('zoomModal').addEventListener('click', (e) => { if (e.target.id === 'zoomModal') closeZoom(); });
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('zoomModal').classList.contains('hidden')) closeZoom();
+    // Ctrl/⌘+Z undoes the last action — but not while typing in a field (there
+    // it should do the browser's text-undo) and only for the PDF-tools view.
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+      if (state.view === 'pdf' && state.undo.length) { e.preventDefault(); performUndo(); }
+    }
   });
 
   registerEvents();
