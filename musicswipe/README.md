@@ -150,9 +150,13 @@ cp .env.example .env      # подставить URL проекта и anon-кл
 npx expo start
 ```
 
-Значения берутся из Supabase → Project Settings → API. Нужен именно **anon**-ключ:
-`service_role` обходит RLS, в приложении ему не место. Если `.env` нет,
-приложение покажет экран с инструкцией вместо пустого окна.
+URL и ключ проще всего получить командой
+`supabase projects api-keys --project-ref <ref>` — она не зависит от того, как
+сейчас выглядит панель; сам URL всегда `https://<ref>.supabase.co`. Нужен ключ
+**anon** (в новом формате — **publishable**): `service_role` обходит RLS,
+в приложении ему не место. Подробнее — в [QUICKSTART](QUICKSTART.md#14-забрать-url-и-ключ).
+
+Если `.env` нет, приложение покажет экран с инструкцией вместо пустого окна.
 
 `npx expo start` печатает QR-код. Установите на iPhone **Expo Go** из App Store,
 отсканируйте код камерой — приложение откроется на телефоне. Ни Mac, ни Xcode,
