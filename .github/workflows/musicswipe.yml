@@ -1,0 +1,152 @@
+name: MusicSwipe
+
+# Проверка проекта без локального Mac и без Xcode:
+#   logic   — юнит-тесты чистой логики (Linux, быстро и бесплатно)
+#   ios     — сборка приложения и запуск в симуляторе на macOS-раннере,
+#             со скриншотом в артефактах
+#   backend — сквозная проверка живого проекта Supabase (если заданы секреты)
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "musicswipe/**"
+      - ".github/workflows/musicswipe.yml"
+  pull_request:
+    paths:
+      - "musicswipe/**"
+      - ".github/workflows/musicswipe.yml"
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  logic:
+    name: Юнит-тесты Edge Functions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Тесты
+        working-directory: musicswipe
+        run: deno test supabase/functions/
+
+      - name: Проверка типов
+        working-directory: musicswipe
+        run: deno check supabase/functions/*/index.ts
+
+  ios:
+    name: Сборка iOS и скриншот
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Версия Xcode
+        run: |
+          xcodebuild -version
+          # Файл проекта в формате objectVersion 77 — нужен Xcode 16 или новее.
+          xcodebuild -version | head -1 | grep -qE 'Xcode 1[6-9]' \
+            || { echo "::error::Нужен Xcode 16+"; exit 1; }
+
+      - name: Выбрать симулятор
+        id: sim
+        run: |
+          # Не привязываемся к конкретной модели: берём первый доступный iPhone,
+          # иначе workflow ломается при каждом обновлении образа раннера.
+          UDID=$(xcrun simctl list devices available | grep -m1 'iPhone' | grep -oE '[0-9A-F-]{36}')
+          if [ -z "$UDID" ]; then echo "::error::Не нашли доступный симулятор iPhone"; exit 1; fi
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices available | grep -m1 'iPhone'
+
+      - name: Подставить ключи Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          # Без ключей приложение всё равно собирается и запускается —
+          # просто покажет экран с инструкцией вместо экрана входа.
+          if [ -z "$SUPABASE_URL" ]; then
+            echo "Секреты не заданы — соберём без конфигурации."
+            exit 0
+          fi
+          cat > musicswipe/ios/MusicSwipe/Core/Config/Supabase.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+          	<key>SUPABASE_URL</key>
+          	<string>${SUPABASE_URL}</string>
+          	<key>SUPABASE_ANON_KEY</key>
+          	<string>${SUPABASE_ANON_KEY}</string>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Сборка
+        working-directory: musicswipe/ios
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project MusicSwipe.xcodeproj \
+            -scheme MusicSwipe \
+            -configuration Debug \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            | tail -60
+
+      - name: Запуск в симуляторе
+        working-directory: musicswipe/ios
+        run: |
+          UDID="${{ steps.sim.outputs.udid }}"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" build/Build/Products/Debug-iphonesimulator/MusicSwipe.app
+          xcrun simctl launch "$UDID" com.musicswipe.app
+          # Даём приложению восстановить сессию и отрисовать первый экран.
+          sleep 10
+          xcrun simctl io "$UDID" screenshot screenshot.png
+          # Логи приложения за время запуска — там будут ошибки сети и декодирования.
+          xcrun simctl spawn "$UDID" log show --last 30s --predicate 'process == "MusicSwipe"' \
+            --style compact > app.log || true
+
+      - name: Артефакты
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicswipe-simulator
+          path: |
+            musicswipe/ios/screenshot.png
+            musicswipe/ios/app.log
+          if-no-files-found: warn
+
+  backend:
+    name: Сквозная проверка Supabase
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Smoke-тест
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          TEST_PLAYLIST_URL: ${{ vars.TEST_PLAYLIST_URL }}
+        working-directory: musicswipe
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "Секреты SUPABASE_URL / SUPABASE_ANON_KEY не заданы — пропускаем."
+            exit 0
+          fi
+          node supabase/scripts/smoke-test.mjs \
+            "${TEST_PLAYLIST_URL:-https://www.deezer.com/playlist/1313621735}"
