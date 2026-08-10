@@ -2,7 +2,7 @@ import { errorResponse, jsonResponse, preflight } from "../_shared/cors.ts";
 import { adminClient, AuthError, requireUser } from "../_shared/db.ts";
 import { fetchPlaylist } from "../_shared/providers/index.ts";
 import { resolveRawTracks, upsertCatalog } from "../_shared/catalog.ts";
-import { buildTasteProfile } from "../_shared/taste.ts";
+import { buildTasteProfile, evenSample, mergeWeights } from "../_shared/taste.ts";
 import { generateRecommendations } from "../_shared/engine.ts";
 import { ImportError, type CatalogTrack } from "../_shared/types.ts";
 
@@ -199,28 +199,3 @@ Deno.serve(async (req) => {
     );
   }
 });
-
-/** Равномерная выборка count индексов из диапазона 0..total-1. */
-function evenSample(total: number, count: number): number[] {
-  if (total <= count) return Array.from({ length: total }, (_, i) => i);
-  const step = total / count;
-  const indexes: number[] = [];
-  for (let i = 0; i < count; i++) {
-    indexes.push(Math.min(total - 1, Math.floor(i * step)));
-  }
-  return indexes;
-}
-
-/** Складывает старые и новые веса: импорт дополняет профиль, а не затирает его. */
-function mergeWeights(
-  existing: unknown,
-  incoming: Record<string, number>,
-): Record<string, number> {
-  const base = (existing && typeof existing === "object" ? existing : {}) as Record<string, number>;
-  const merged: Record<string, number> = { ...base };
-
-  for (const [key, value] of Object.entries(incoming)) {
-    merged[key] = Math.round(((merged[key] ?? 0) + value) * 10_000) / 10_000;
-  }
-  return merged;
-}

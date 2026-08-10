@@ -96,3 +96,35 @@ export function topKeys(weights: Record<string, number>, limit: number): string[
     .slice(0, limit)
     .map(([key]) => key);
 }
+
+/**
+ * Равномерная выборка `count` индексов из диапазона 0..total-1.
+ *
+ * Длинный плейлист целиком через внешнее API не прогнать, а первые сто треков
+ * описывают вкус хуже, чем сотня, размазанная по всему списку.
+ */
+export function evenSample(total: number, count: number): number[] {
+  if (total <= 0 || count <= 0) return [];
+  if (total <= count) return Array.from({ length: total }, (_, i) => i);
+
+  const step = total / count;
+  const indexes: number[] = [];
+  for (let i = 0; i < count; i++) {
+    indexes.push(Math.min(total - 1, Math.floor(i * step)));
+  }
+  return indexes;
+}
+
+/** Складывает старые и новые веса: импорт дополняет профиль, а не затирает его. */
+export function mergeWeights(
+  existing: unknown,
+  incoming: Record<string, number>,
+): Record<string, number> {
+  const base = (existing && typeof existing === "object" ? existing : {}) as Record<string, number>;
+  const merged: Record<string, number> = { ...base };
+
+  for (const [key, value] of Object.entries(incoming)) {
+    merged[key] = round((merged[key] ?? 0) + value, 4);
+  }
+  return merged;
+}
