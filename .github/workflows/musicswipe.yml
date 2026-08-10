@@ -4,6 +4,8 @@ name: MusicSwipe
 #   logic   — юнит-тесты чистой логики (Linux, быстро и бесплатно)
 #   ios     — сборка приложения и запуск в симуляторе на macOS-раннере,
 #             со скриншотом в артефактах
+#   ipa     — неподписанный .ipa для установки на свой iPhone
+#             (только по кнопке: минуты macOS расходуются с коэффициентом x10)
 #   backend — сквозная проверка живого проекта Supabase (если заданы секреты)
 
 on:
@@ -17,6 +19,11 @@ on:
       - "musicswipe/**"
       - ".github/workflows/musicswipe.yml"
   workflow_dispatch:
+    inputs:
+      build_ipa:
+        description: "Собрать неподписанный .ipa для установки на устройство"
+        type: boolean
+        default: true
 
 defaults:
   run:
@@ -69,25 +76,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-        run: |
-          # Без ключей приложение всё равно собирается и запускается —
-          # просто покажет экран с инструкцией вместо экрана входа.
-          if [ -z "$SUPABASE_URL" ]; then
-            echo "Секреты не заданы — соберём без конфигурации."
-            exit 0
-          fi
-          cat > musicswipe/ios/MusicSwipe/Core/Config/Supabase.plist <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-          	<key>SUPABASE_URL</key>
-          	<string>${SUPABASE_URL}</string>
-          	<key>SUPABASE_ANON_KEY</key>
-          	<string>${SUPABASE_ANON_KEY}</string>
-          </dict>
-          </plist>
-          PLIST
+        run: musicswipe/ios/scripts/make-config.sh
 
       - name: Сборка
         working-directory: musicswipe/ios
@@ -126,6 +115,59 @@ jobs:
             musicswipe/ios/screenshot.png
             musicswipe/ios/app.log
           if-no-files-found: warn
+
+  ipa:
+    name: Неподписанный .ipa
+    # Только вручную: у macOS-раннера множитель минут x10, не нужно жечь их
+    # на каждый пуш.
+    if: github.event_name == 'workflow_dispatch' && inputs.build_ipa
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Подставить ключи Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: musicswipe/ios/scripts/make-config.sh
+
+      - name: Архив без подписи
+        working-directory: musicswipe/ios
+        env:
+          # Идентификатор по умолчанию может быть занят чужим приложением.
+          # Задайте переменную репозитория BUNDLE_ID вида com.ваше-имя.musicswipe.
+          BUNDLE_ID: ${{ vars.BUNDLE_ID }}
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project MusicSwipe.xcodeproj \
+            -scheme MusicSwipe \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/MusicSwipe.xcarchive \
+            PRODUCT_BUNDLE_IDENTIFIER="${BUNDLE_ID:-com.musicswipe.app}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | tail -40
+
+      - name: Упаковать в .ipa
+        working-directory: musicswipe/ios
+        run: |
+          # .ipa — это zip с папкой Payload. Подпись поставит Sideloadly
+          # или AltStore уже на вашей стороне, вашим Apple ID.
+          mkdir -p build/Payload
+          cp -R build/MusicSwipe.xcarchive/Products/Applications/MusicSwipe.app build/Payload/
+          cd build && zip -qry MusicSwipe-unsigned.ipa Payload
+          ls -lh MusicSwipe-unsigned.ipa
+
+      - name: Артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicSwipe-unsigned-ipa
+          path: musicswipe/ios/build/MusicSwipe-unsigned.ipa
+          if-no-files-found: error
 
   backend:
     name: Сквозная проверка Supabase
