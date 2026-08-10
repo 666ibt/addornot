@@ -20,6 +20,20 @@ const jobs = new Map();
 // Set when the user hits "Start over" mid-processing; the run loop checks it.
 let cancelRequested = false;
 
+// Pause support: while paused, the run loop stops dispatching NEW pages (pages
+// already in flight finish). `resumeWaiters` are resolved when the user resumes.
+let paused = false;
+let resumeWaiters = [];
+function waitWhilePaused() {
+  if (!paused || cancelRequested) return Promise.resolve();
+  return new Promise((resolve) => resumeWaiters.push(resolve));
+}
+function releasePause() {
+  const waiters = resumeWaiters;
+  resumeWaiters = [];
+  waiters.forEach((r) => r());
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1180,
@@ -157,20 +171,27 @@ function shouldUseAi(settings, confidence) {
   return confidence === 'low'; // default
 }
 
-/** Downscale a PNG so API payloads stay reasonable; best-effort. */
-async function thumbnail(pngBuffer, maxWidth = 520) {
+/** Downscale a PNG so API payloads stay reasonable; best-effort. Smaller/lighter
+ *  thumbnails mean less base64 over IPC and lighter DOM in the review list. */
+async function thumbnail(pngBuffer, maxWidth = 440) {
   try {
     const Jimp = require('jimp');
     const img = await Jimp.read(pngBuffer);
     if (img.bitmap.width > maxWidth) img.resize(maxWidth, Jimp.AUTO);
-    const jpg = await img.quality(72).getBufferAsync(Jimp.MIME_JPEG);
+    const jpg = await img.quality(66).getBufferAsync(Jimp.MIME_JPEG);
     return `data:image/jpeg;base64,${jpg.toString('base64')}`;
   } catch (_) {
     return `data:image/png;base64,${pngBuffer.toString('base64')}`;
   }
 }
 
-ipcMain.handle('process:cancel', () => { cancelRequested = true; });
+ipcMain.handle('process:cancel', () => {
+  cancelRequested = true;
+  paused = false;
+  releasePause(); // wake any paused runners so they can see the cancel and exit
+});
+ipcMain.handle('process:pause', () => { paused = true; return { ok: true }; });
+ipcMain.handle('process:resume', () => { paused = false; releasePause(); return { ok: true }; });
 
 ipcMain.handle('process:start', async (_e, arg) => {
   // Back-compat: arg may be an array of paths (defaults to the TTN tool).
@@ -185,6 +206,8 @@ ipcMain.handle('process:start', async (_e, arg) => {
   const pages = [];
   jobs.set(jobId, pages);
   cancelRequested = false;
+  paused = false;
+  resumeWaiters = [];
 
   // Render scale by tool: TTN needs high res; the approval header is larger so
   // a lower scale is enough and much faster; the splitter only needs a preview.
@@ -211,6 +234,8 @@ ipcMain.handle('process:start', async (_e, arg) => {
 
   let done = 0;
   const processTask = async (task) => {
+    if (cancelRequested) return;
+    await waitWhilePaused(); // hold here while paused; pages in flight finish
     if (cancelRequested) return;
     let fields = {};
     let rotation = 0;

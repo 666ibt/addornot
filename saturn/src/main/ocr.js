@@ -131,8 +131,24 @@ async function rotateBuffer(buffer, deg) {
   return img.getBufferAsync(Jimp.MIME_PNG);
 }
 
-/** Pixel dimensions of a PNG buffer. */
+/**
+ * Pixel dimensions of a PNG buffer, read from the IHDR header (bytes 16–23)
+ * without decoding the whole image. mupdf hands us PNGs, so this is the fast
+ * path; anything else falls back to a full Jimp decode. Avoiding the decode
+ * here (and in capForOcr) keeps the main process responsive during a batch —
+ * decoding every page several times was a real source of lag.
+ */
+function pngSize(buffer) {
+  if (buffer && buffer.length >= 24 && buffer[0] === 0x89 && buffer[1] === 0x50
+      && buffer[2] === 0x4e && buffer[3] === 0x47) {
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+  }
+  return null;
+}
+
 async function imageSize(buffer) {
+  const s = pngSize(buffer);
+  if (s) return s;
   const img = await Jimp.read(buffer);
   return { width: img.bitmap.width, height: img.bitmap.height };
 }
@@ -158,6 +174,11 @@ const MAX_OCR_DIM = 3200;
 
 /** Shrink a PNG buffer so its longest side is ≤ MAX_OCR_DIM (else unchanged). */
 async function capForOcr(buffer) {
+  // Fast path: read the size from the header and, for the common in-bounds
+  // page, return the buffer untouched — no decode/re-encode on the main thread.
+  const hdr = pngSize(buffer);
+  if (hdr && Math.max(hdr.width, hdr.height) <= MAX_OCR_DIM) return buffer;
+
   const img = await Jimp.read(buffer);
   const { width, height } = img.bitmap;
   const longest = Math.max(width, height);

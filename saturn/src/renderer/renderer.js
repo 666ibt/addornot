@@ -71,6 +71,7 @@ const state = {
   outputDir: '',
   staged: [],     // file paths chosen, awaiting «Начать обработку»
   undo: [],       // stack of {label, undo} for «↶ Отменить»
+  paused: false,  // TTN processing paused by the user
   pages: new Map(),
   total: 0,
   done: 0,
@@ -225,20 +226,52 @@ async function startProcessing(filePaths) {
   $('workarea').classList.remove('hidden');
   $('progressWrap').classList.remove('hidden');
   state.processing = true;
+  state.paused = false;
   clearUndo(); // a fresh batch — old undo entries reference the previous run
   showProcLoader();
+  updatePauseButton();
   updateSaveButton();
   try {
     await api.startProcessing(filePaths, state.mode);
   } catch (err) {
     state.processing = false;
+    state.paused = false;
     hideProcLoader();
+    updatePauseButton();
     toast(`Ошибка обработки: ${err.message || err}`, 'err');
   }
 }
 
 function showProcLoader() { $('procLoader').classList.add('on'); }
 function hideProcLoader() { $('procLoader').classList.remove('on'); }
+
+// Pause / resume the running batch. Pages already in flight finish; no NEW
+// pages start until resumed.
+async function togglePause() {
+  if (!state.processing) return;
+  state.paused = !state.paused;
+  updatePauseButton();
+  try {
+    if (state.paused) {
+      await api.pause();
+      hideProcLoader(); // stop the "working" watermark while on hold
+      toast('Обработка приостановлена. Уже начатые страницы допишутся.', 'ok');
+    } else {
+      await api.resume();
+      showProcLoader();
+      toast('Обработка продолжена.', 'ok');
+    }
+  } catch (err) {
+    toast(`Ошибка: ${err.message || err}`, 'err');
+  }
+}
+function updatePauseButton() {
+  const b = $('pauseBtn');
+  if (!b) return;
+  b.classList.toggle('hidden', !state.processing);
+  b.textContent = state.paused ? '▶ Продолжить' : '⏸ Пауза';
+  b.classList.toggle('primary', state.paused); // stand out while paused
+}
 
 function registerEvents() {
   api.on('process:meta', (p) => {
@@ -265,7 +298,9 @@ function registerEvents() {
   api.on('process:complete', (p) => {
     if (p.jobId !== state.jobId) return;
     state.processing = false;
+    state.paused = false;
     hideProcLoader();
+    updatePauseButton();
     sortCards(); // low → medium → high, then page order (done once, not per card)
     $('progressWrap').classList.add('hidden');
     updateSaveButton();
@@ -525,9 +560,11 @@ function resetPdf() {
   state.total = 0;
   state.done = 0;
   state.processing = false;
+  state.paused = false;
   state.zoomPageId = null;
   closeZoom();
   hideProcLoader();
+  updatePauseButton();
   $('cards').innerHTML = '';
   $('progressWrap').classList.add('hidden');
   $('workarea').classList.add('hidden');
@@ -952,6 +989,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('stageClearBtn').addEventListener('click', clearStage);
   $('stageStartBtn').addEventListener('click', () => startProcessing(state.staged));
   $('restartBtn').addEventListener('click', resetPdf);
+  $('pauseBtn').addEventListener('click', togglePause);
   $('undoBtn').addEventListener('click', performUndo);
   $('pickOutBtn').addEventListener('click', pickOutput);
   $('saveBtn').addEventListener('click', save);
