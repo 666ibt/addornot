@@ -321,9 +321,34 @@ button.ghost:hover { border-color: #3a4552; }
 .zoom-side input:focus { outline: none; border-color: var(--accent); }
 .zoom-side label.small { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; }
 .zoom-hint { font-size: 11.5px; line-height: 1.5; }
+.zoom-counter { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.zoom-actions { margin-top: auto; padding-top: 8px; }
+.zoom-actions .del-one {
+  width: 100%; display: flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--muted); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px; font: inherit; font-size: 14px; cursor: pointer;
+}
+.zoom-actions .del-one:hover { border-color: var(--red); color: var(--red); }
+
+/* Side arrows: fixed to the screen edges, over the modal backdrop. */
+.zoom-nav {
+  position: fixed; top: 50%; transform: translateY(-50%); z-index: 31;
+  width: 52px; height: 72px; border-radius: 12px;
+  background: rgba(20,24,30,.72); border: 1px solid var(--border); color: var(--text);
+  font-size: 30px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, opacity .12s;
+}
+.zoom-nav.prev { left: 18px; }
+.zoom-nav.next { right: 18px; }
+.zoom-nav:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+.zoom-nav:disabled { opacity: .28; cursor: default; }
 @media (max-width: 720px) {
   .zoom-body { flex-direction: column; }
   .zoom-side { flex-basis: auto; border-left: none; border-top: 1px solid var(--border); }
+  .zoom-nav { width: 40px; height: 56px; font-size: 24px; }
+  .zoom-nav.prev { left: 6px; }
+  .zoom-nav.next { right: 6px; }
 }
 
 /* Toast */

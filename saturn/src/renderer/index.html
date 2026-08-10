@@ -288,10 +288,14 @@
 
     <!-- Zoom / review modal -->
     <div id="zoomModal" class="modal zoom hidden">
+      <!-- Side navigation between cards (previous / next). -->
+      <button id="zoomPrev" class="zoom-nav prev" title="Предыдущая карточка (←)">‹</button>
+      <button id="zoomNext" class="zoom-nav next" title="Следующая карточка (→)">›</button>
       <div class="zoom-card">
         <div class="zoom-header">
           <span id="zoomTitle" class="zoom-title"></span>
           <div class="zoom-header-right">
+            <span id="zoomCounter" class="zoom-counter"></span>
             <span id="zoomBadges"></span>
             <button id="zoomClose" class="ghost" title="Закрыть (Esc)">✕</button>
           </div>
@@ -316,6 +320,9 @@
             <div class="fname">→ <span id="zoomFilename" class="name"></span></div>
             <p class="zoom-hint muted">Проверьте данные по изображению и при необходимости
               исправьте — изменения сразу применятся к карточке.</p>
+            <div class="zoom-actions">
+              <button id="zoomDelete" class="del-one" title="Удалить эту карточку и перейти к следующей">🗑 Удалить</button>
+            </div>
           </div>
         </div>
       </div>

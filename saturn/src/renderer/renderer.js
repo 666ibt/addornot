@@ -508,6 +508,7 @@ async function openZoom(pageId) {
     $('zoomName').value = rec.editName || '';
   }
   updateZoomFilename(rec);
+  updateZoomNav(pageId);
 
   const img = $('zoomImg');
   const loading = $('zoomLoading');
@@ -532,6 +533,47 @@ function closeZoom() {
   $('zoomModal').classList.add('hidden');
   $('zoomImg').src = '';
   state.zoomPageId = null;
+}
+
+// Order of cards as shown on screen (the DOM order in #cards).
+function orderedPageIds() {
+  return [...$('cards').children].map((c) => c.dataset.page);
+}
+
+// Enable/disable the side arrows and refresh the «N / всего» counter for the
+// card currently open in the zoom modal.
+function updateZoomNav(pageId) {
+  const ids = orderedPageIds();
+  const i = ids.indexOf(pageId);
+  const prev = $('zoomPrev');
+  const next = $('zoomNext');
+  if (prev) prev.disabled = i <= 0;
+  if (next) next.disabled = i < 0 || i >= ids.length - 1;
+  const c = $('zoomCounter');
+  if (c) c.textContent = ids.length ? `${i + 1} / ${ids.length}` : '';
+}
+
+// Step to the previous (-1) or next (+1) card without leaving the zoom view.
+function zoomStep(delta) {
+  const ids = orderedPageIds();
+  const i = ids.indexOf(state.zoomPageId);
+  if (i < 0) return;
+  const target = ids[i + delta];
+  if (target) openZoom(target);
+}
+
+// Delete the card open in the zoom modal and move on to the next one (or the
+// previous, if this was the last). Removal stays reversible via «↶ Отменить».
+function zoomDelete() {
+  const pageId = state.zoomPageId;
+  if (!pageId) return;
+  const ids = orderedPageIds();
+  const i = ids.indexOf(pageId);
+  const jumpTo = ids[i + 1] || ids[i - 1] || null;
+  state.zoomPageId = null; // keep removePage from auto-closing the modal
+  removePage(pageId);
+  if (jumpTo) openZoom(jumpTo);
+  else closeZoom();
 }
 
 function onZoomEdit() {
@@ -1014,13 +1056,25 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Zoom modal
   $('zoomClose').addEventListener('click', closeZoom);
+  $('zoomPrev').addEventListener('click', () => zoomStep(-1));
+  $('zoomNext').addEventListener('click', () => zoomStep(1));
+  $('zoomDelete').addEventListener('click', zoomDelete);
   $('zoomNak').addEventListener('input', onZoomEdit);
   $('zoomDog').addEventListener('input', onZoomEdit);
   $('zoomName').addEventListener('input', onZoomEdit);
   $('zoomImageWrap').addEventListener('click', () => $('zoomImageWrap').classList.toggle('actual'));
   $('zoomModal').addEventListener('click', (e) => { if (e.target.id === 'zoomModal') closeZoom(); });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('zoomModal').classList.contains('hidden')) closeZoom();
+    const zoomOpen = !$('zoomModal').classList.contains('hidden');
+    if (e.key === 'Escape' && zoomOpen) closeZoom();
+    // ← / → step between cards while the zoom modal is open (not while typing
+    // in a field — there the arrows move the text cursor).
+    if (zoomOpen && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+      e.preventDefault();
+      zoomStep(e.key === 'ArrowLeft' ? -1 : 1);
+    }
     // Ctrl/⌘+Z undoes the last action — but not while typing in a field (there
     // it should do the browser's text-undo) and only for the PDF-tools view.
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
