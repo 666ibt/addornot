@@ -8,6 +8,7 @@
  */
 
 import { fetchJson, RateLimiter } from "./http.ts";
+import { cleanTitle, similarity } from "./matching.ts";
 import type { CatalogTrack, RawTrack } from "./types.ts";
 
 const API = "https://api.deezer.com";
@@ -267,33 +268,6 @@ export async function toCatalogTrack(
 
 function escapeQuery(value: string): string {
   return value.replace(/["\\]/g, " ").trim();
-}
-
-export function cleanTitle(title: string): string {
-  return title
-    .replace(/\s*[\(\[](feat\.?|ft\.?|with)[^\)\]]*[\)\]]/gi, "")
-    .replace(/\s*[\(\[][^\)\]]*(remaster|remastered|deluxe|bonus|explicit|lyric|audio|video|official)[^\)\]]*[\)\]]/gi, "")
-    .replace(/\s*-\s*(remaster(ed)?|single version|album version)\b.*$/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
-function normalize(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[’'`]/g, "")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-}
-
-/** Похожесть по токенам — коэффициент Жаккара. */
-function similarity(a: string, b: string): number {
-  const setA = new Set(normalize(a).split(" ").filter(Boolean));
-  const setB = new Set(normalize(b).split(" ").filter(Boolean));
-  if (setA.size === 0 || setB.size === 0) return 0;
-  let common = 0;
-  for (const token of setA) if (setB.has(token)) common++;
-  return common / (setA.size + setB.size - common);
 }
 
 function pickBestMatch(candidates: DeezerTrack[], raw: RawTrack): DeezerTrack | null {

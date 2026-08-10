@@ -9,7 +9,7 @@ import { assertEquals, assertThrows } from "jsr:@std/assert@1";
 
 import { detectPlaylist } from "./providers/detect.ts";
 import { splitVideoTitle } from "./providers/youtube.ts";
-import { cleanTitle } from "./deezer.ts";
+import { cleanTitle, trackKey } from "./matching.ts";
 import { buildTasteProfile, evenSample, mergeWeights, topKeys } from "./taste.ts";
 import { extractJsonAfter, extractScriptJson } from "./http.ts";
 import { collectNodes } from "./jsonwalk.ts";
@@ -106,6 +106,22 @@ Deno.test("cleanTitle: убирает приписки, мешающие пои�
   assertEquals(cleanTitle("Numb (feat. Jay-Z)"), "Numb");
   assertEquals(cleanTitle("Come Together - Remastered 2009"), "Come Together");
   assertEquals(cleanTitle("Yesterday"), "Yesterday");
+});
+
+Deno.test("trackKey: одинаковые треки в разной записи дают один ключ", () => {
+  // Ровно эти расхождения и мешают отсеять из ленты то, что уже в плейлисте.
+  const canonical = trackKey("Linkin Park", "Numb");
+
+  assertEquals(trackKey("Linkin Park", "Numb (feat. Jay-Z)"), canonical);
+  assertEquals(trackKey("LINKIN PARK", "numb"), canonical);
+  assertEquals(trackKey("Linkin Park, Jay-Z", "Numb"), canonical);
+  assertEquals(trackKey("Linkin Park feat. Jay-Z", "Numb"), canonical);
+  assertEquals(trackKey("Linkin  Park", "Numb - Remastered 2019"), canonical);
+});
+
+Deno.test("trackKey: разные треки не склеиваются", () => {
+  assertEquals(trackKey("Linkin Park", "Numb") === trackKey("Linkin Park", "Faint"), false);
+  assertEquals(trackKey("Linkin Park", "Numb") === trackKey("Rihanna", "Numb"), false);
 });
 
 // ---------------------------------------------------------------------------

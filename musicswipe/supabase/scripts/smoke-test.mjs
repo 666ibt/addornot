@@ -102,6 +102,24 @@ function describeError(result) {
   return `HTTP ${result.status}`;
 }
 
+/** Та же нормализация, что в supabase/functions/_shared/matching.ts. */
+function trackKey(artist, title) {
+  const normalize = (value) =>
+    String(value ?? "")
+      .toLowerCase()
+      .replace(/[’'`]/g, "")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim();
+
+  const cleanTitle = String(title ?? "")
+    .replace(/\s*[\(\[](feat\.?|ft\.?|with)[^\)\]]*[\)\]]/gi, "")
+    .replace(/\s*-\s*(remaster(ed)?|single version|album version)\b.*$/gi, "")
+    .trim();
+
+  const primary = String(artist ?? "").split(/,|&|\bfeat\.?\b|\bft\.?\b/i)[0] ?? artist;
+  return `${normalize(primary)}|${normalize(cleanTitle)}`;
+}
+
 // --- сценарий ----------------------------------------------------------------
 
 async function signIn() {
@@ -131,34 +149,85 @@ async function signIn() {
 
 async function importPlaylist() {
   step(`Импорт плейлиста (${PLAYLIST_URL})`);
-  info("обычно занимает 20–40 секунд…");
 
-  const result = await call("/functions/v1/import-playlist", { body: { url: PLAYLIST_URL } });
+  const started = await call("/functions/v1/import-playlist", { body: { url: PLAYLIST_URL } });
 
-  if (!result.ok) {
-    fail(`импорт не прошёл: ${describeError(result)}`);
+  if (!started.ok) {
+    fail(`импорт не запустился: ${describeError(started)}`);
     return null;
   }
 
-  const { playlist, taste, deck_prepared: deckPrepared } = result.payload;
-  pass(`импорт занял ${(result.ms / 1000).toFixed(1)} с`);
+  const playlist = started.payload.playlist;
+  pass(`запрос принят за ${(started.ms / 1000).toFixed(1)} с`);
   info(`платформа: ${playlist.platform}, треков: ${playlist.track_count}`);
 
+  // Разбор идёт в фоне порциями — ждём, опрашивая прогресс.
+  info("ждём разбор…");
+
+  const deadlineAt = Date.now() + 8 * 60 * 1000;
+  let progress = null;
+  let lastAnalyzed = -1;
+
+  while (Date.now() < deadlineAt) {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    const result = await call("/rest/v1/rpc/playlist_progress", {
+      body: { p_playlist_id: playlist.id },
+    });
+
+    if (!result.ok) {
+      fail(`playlist_progress вернул ошибку: ${describeError(result)}`);
+      return null;
+    }
+
+    progress = result.payload[0] ?? null;
+    if (!progress) {
+      fail("плейлист не найден — проверьте RLS");
+      return null;
+    }
+
+    if (progress.analyzed_count !== lastAnalyzed) {
+      info(`разобрано ${progress.analyzed_count} из ${progress.track_count}`);
+      lastAnalyzed = progress.analyzed_count;
+    }
+
+    if (progress.status === "ready" || progress.status === "failed") break;
+  }
+
+  if (!progress || progress.status === "importing") {
+    fail("разбор не завершился за отведённое время");
+    return null;
+  }
+
+  if (progress.status === "failed") {
+    fail(`разбор упал: ${progress.error_message}`);
+    return null;
+  }
+
+  pass("разбор завершён");
+
   check(
-    playlist.matched_count > 0,
-    `распознано ${playlist.matched_count} из ${playlist.analyzed_count} проанализированных`,
+    progress.analyzed_count >= progress.track_count,
+    `проанализированы все ${progress.track_count} треков`,
+    `проанализировано только ${progress.analyzed_count} из ${progress.track_count}`,
+  );
+
+  check(
+    progress.matched_count > 0,
+    `распознано ${progress.matched_count} треков`,
     "ни один трек не удалось сопоставить с каталогом",
   );
 
-  check(
-    taste.top_genres.length > 0,
-    `жанры определены: ${taste.top_genres.map((g) => g.genre).join(", ")}`,
-    "вкусовой профиль пуст — рекомендации будут строиться только по исполнителям",
-  );
+  const taste = await call("/rest/v1/rpc/taste_summary", { body: {} });
+  if (taste.ok) {
+    check(
+      taste.payload.length > 0,
+      `жанры определены: ${taste.payload.slice(0, 4).map((row) => row.genre).join(", ")}`,
+      "вкусовой профиль пуст — рекомендации пойдут только по исполнителям",
+    );
+  }
 
-  check(deckPrepared > 0, `подготовлено карточек: ${deckPrepared}`, "лента не наполнилась");
-
-  return result.payload;
+  return progress;
 }
 
 async function fetchDeck(limit = 10) {
@@ -173,7 +242,14 @@ async function fetchDeck(limit = 10) {
 async function checkDeck() {
   step("Лента");
 
-  const deck = await fetchDeck();
+  let deck = await fetchDeck();
+
+  // Ленту наполняет тот же фоновый процесс — она может появиться чуть позже.
+  for (let attempt = 0; attempt < 5 && deck && deck.length === 0; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    deck = await fetchDeck();
+  }
+
   if (!deck) return null;
 
   if (!check(deck.length > 0, `в колоде ${deck.length} карточек`, "колода пуста")) {
@@ -208,6 +284,27 @@ async function checkDeck() {
     "карточки объясняют, почему попали в ленту",
     "у карточек нет объяснения подбора",
   );
+
+  // Ключевой инвариант: в ленте не должно быть того, что уже есть в плейлисте.
+  const playlistTracks = await call(
+    "/rest/v1/playlist_tracks?select=raw_artist,raw_title&limit=1000",
+    { method: "GET" },
+  );
+
+  if (playlistTracks.ok && Array.isArray(playlistTracks.payload)) {
+    const known = new Set(
+      playlistTracks.payload.map((row) => trackKey(row.raw_artist, row.raw_title)),
+    );
+    const collisions = deck.filter((track) => known.has(trackKey(track.artist_name, track.title)));
+
+    check(
+      collisions.length === 0,
+      "в ленте нет треков из вашего плейлиста",
+      `лента предлагает то, что уже есть в плейлисте: ${
+        collisions.slice(0, 3).map((t) => `${t.artist_name} — ${t.title}`).join("; ")
+      }`,
+    );
+  }
 
   info(`первая карточка: ${deck[0].artist_name} — ${deck[0].title}`);
   return deck;

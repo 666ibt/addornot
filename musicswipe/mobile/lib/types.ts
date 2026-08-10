@@ -57,7 +57,12 @@ export interface PlaylistSummary {
   created_at: string;
 }
 
-/** Ответ Edge Function `import-playlist`. */
+/**
+ * Ответ Edge Function `import-playlist`.
+ *
+ * Функция отвечает сразу после сохранения состава плейлиста — разбор идёт
+ * в фоне, за ним следят через `playlistProgress`.
+ */
 export interface ImportPlaylistResult {
   playlist: {
     id: string;
@@ -66,15 +71,21 @@ export interface ImportPlaylistResult {
     cover_url: string | null;
     owner_name: string | null;
     track_count: number;
-    analyzed_count: number;
-    matched_count: number;
+    status: string;
   };
-  taste: {
-    top_genres: Array<{ genre: string; weight: number }>;
-    avg_year: number | null;
-    avg_bpm: number | null;
-  };
-  deck_prepared: number;
+}
+
+/** Ход разбора — ответ RPC `playlist_progress`. */
+export interface PlaylistProgress {
+  id: string;
+  status: 'pending' | 'importing' | 'ready' | 'failed';
+  platform: string;
+  title: string | null;
+  cover_url: string | null;
+  track_count: number;
+  analyzed_count: number;
+  matched_count: number;
+  error_message: string | null;
 }
 
 export interface RecommendResult {

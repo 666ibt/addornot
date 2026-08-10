@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -29,21 +29,9 @@ import { useOnboarding } from '../lib/onboarding';
 import { detectPlatform, PLATFORMS, platformName } from '../lib/platforms';
 import { describeError } from '../lib/supabase';
 import { theme } from '../lib/theme';
-import type { ImportPlaylistResult } from '../lib/types';
+import type { PlaylistProgress, TasteGenre } from '../lib/types';
 
-/**
- * Импорт идёт одним запросом и занимает десятки секунд. Прогресс-бар был бы
- * обманом, поэтому показываем, чем сервер занят прямо сейчас — по таймингам,
- * которые повторяют шаги Edge Function.
- */
-const STAGES = [
-  'Открываем плейлист…',
-  'Читаем список треков…',
-  'Ищем треки в музыкальном каталоге…',
-  'Определяем жанры и годы…',
-  'Собираем ваш вкусовой профиль…',
-  'Подбираем первые рекомендации…',
-];
+const POLL_INTERVAL_MS = 2000;
 
 export default function ImportScreen() {
   const router = useRouter();
@@ -52,43 +40,78 @@ export default function ImportScreen() {
   const isOnboarding = from !== 'profile';
 
   const [url, setUrl] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [stage, setStage] = useState(STAGES[0]);
+  const [starting, setStarting] = useState(false);
+  const [progress, setProgress] = useState<PlaylistProgress | null>(null);
+  const [taste, setTaste] = useState<TasteGenre[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<ImportPlaylistResult | null>(null);
 
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const playlistId = useRef<string | null>(null);
   const platform = detectPlatform(url);
 
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  const done = progress?.status === 'ready';
+  const running = starting || progress?.status === 'importing' || progress?.status === 'pending';
 
-  function startStages() {
-    timers.current.forEach(clearTimeout);
-    timers.current = STAGES.slice(1).map((text, index) =>
-      setTimeout(() => setStage(text), (index + 1) * 6000),
-    );
-    setStage(STAGES[0]);
-  }
+  /**
+   * Разбор идёт на сервере порциями, поэтому клиент опрашивает состояние.
+   * Это честный прогресс: сколько треков реально прошло через каталог.
+   */
+  const poll = useCallback(async () => {
+    const id = playlistId.current;
+    if (!id) return;
 
-  async function runImport() {
+    try {
+      const next = await api.playlistProgress(id);
+      if (!next) return;
+
+      setProgress(next);
+
+      if (next.status === 'ready') {
+        setTaste(await api.tasteSummary().catch(() => []));
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else if (next.status === 'failed') {
+        setError(next.error_message ?? 'Не удалось разобрать плейлист');
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+    } catch (cause) {
+      setError(await describeError(cause));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!running || starting) return;
+    const timer = setInterval(poll, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [running, starting, poll]);
+
+  async function startImport() {
     const link = url.trim();
     if (link.length === 0) return;
 
-    setBusy(true);
+    setStarting(true);
     setError(null);
-    setResult(null);
-    startStages();
+    setProgress(null);
+    setTaste([]);
 
     try {
-      const imported = await api.importPlaylist(link);
-      setResult(imported);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const started = await api.importPlaylist(link);
+      playlistId.current = started.playlist.id;
+
+      setProgress({
+        id: started.playlist.id,
+        status: 'importing',
+        platform: started.playlist.platform,
+        title: started.playlist.title,
+        cover_url: started.playlist.cover_url,
+        track_count: started.playlist.track_count,
+        analyzed_count: 0,
+        matched_count: 0,
+        error_message: null,
+      });
     } catch (cause) {
       setError(await describeError(cause));
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
-      timers.current.forEach(clearTimeout);
-      setBusy(false);
+      setStarting(false);
     }
   }
 
@@ -116,15 +139,20 @@ export default function ImportScreen() {
               </Text>
             </View>
 
-            {!isOnboarding ? (
+            {!isOnboarding && !running ? (
               <Pressable onPress={() => router.back()} hitSlop={10}>
                 <Ionicons name="close" size={26} color={theme.textSecondary} />
               </Pressable>
             ) : null}
           </View>
 
-          {result ? (
-            <ResultCard result={result} onContinue={finish} />
+          {progress ? (
+            <ProgressCard
+              progress={progress}
+              taste={taste}
+              done={done}
+              onContinue={finish}
+            />
           ) : (
             <>
               <View style={{ gap: 14 }}>
@@ -170,15 +198,10 @@ export default function ImportScreen() {
                 <PrimaryButton
                   title="Анализировать плейлист"
                   icon="sparkles"
-                  loading={busy}
+                  loading={starting}
                   disabled={url.trim().length === 0}
-                  onPress={runImport}
+                  onPress={startImport}
                 />
-
-                <Text style={styles.note}>
-                  Разбор большого плейлиста занимает до минуты — мы обращаемся к музыкальным
-                  каталогам и подбираем первые тридцать карточек.
-                </Text>
               </View>
 
               <View style={{ gap: 12 }}>
@@ -198,62 +221,90 @@ export default function ImportScreen() {
           {error ? <ErrorBanner message={error} onRetry={() => setError(null)} /> : null}
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {busy ? (
-        <View style={styles.overlay}>
-          <View style={styles.overlayCard}>
-            <ActivityIndicator size="large" color={theme.accent} />
-            <Text style={styles.overlayText}>{stage}</Text>
-          </View>
-        </View>
-      ) : null}
     </Background>
   );
 }
 
-function ResultCard({
-  result,
+function ProgressCard({
+  progress,
+  taste,
+  done,
   onContinue,
 }: {
-  result: ImportPlaylistResult;
+  progress: PlaylistProgress;
+  taste: TasteGenre[];
+  done: boolean;
   onContinue: () => void;
 }) {
+  const share = progress.track_count > 0
+    ? Math.min(progress.analyzed_count / progress.track_count, 1)
+    : 0;
+
   return (
     <Card style={{ padding: 20, gap: 18 }}>
       <View style={styles.resultHeader}>
-        <Artwork uri={result.playlist.cover_url} size={72} />
+        <Artwork uri={progress.cover_url} size={72} />
         <View style={styles.flex}>
           <Text style={styles.resultTitle} numberOfLines={2}>
-            {result.playlist.title ?? 'Ваш плейлист'}
+            {progress.title ?? 'Ваш плейлист'}
           </Text>
           <Text style={styles.resultMeta}>
-            {platformName(result.playlist.platform)} · {result.playlist.track_count} треков
+            {platformName(progress.platform)} · {progress.track_count} треков
           </Text>
         </View>
       </View>
 
-      <View style={{ gap: 8 }}>
-        <Text style={styles.sectionTitle}>Что мы поняли о вашем вкусе</Text>
-        {result.taste.top_genres.length > 0 ? (
-          <TasteBars values={result.taste.top_genres} />
-        ) : (
-          <Text style={styles.note}>
-            Жанры определить не удалось — лента соберётся по исполнителям.
-          </Text>
-        )}
-        {result.taste.avg_year ? (
-          <Text style={styles.note}>
-            Средний год выпуска: {Math.round(result.taste.avg_year)}
-          </Text>
-        ) : null}
-      </View>
+      {done ? (
+        <>
+          <View style={{ gap: 8 }}>
+            <Text style={styles.sectionTitle}>Что мы поняли о вашем вкусе</Text>
+            {taste.length > 0 ? (
+              <TasteBars values={taste} />
+            ) : (
+              <Text style={styles.note}>
+                Жанры определить не удалось — лента соберётся по исполнителям.
+              </Text>
+            )}
+          </View>
 
-      <View style={styles.stats}>
-        <Stat value={result.playlist.matched_count} caption="распознано" />
-        <Stat value={result.deck_prepared} caption="карточек готово" />
-      </View>
+          <View style={styles.stats}>
+            <Stat value={progress.analyzed_count} caption="проанализировано" />
+            <Stat value={progress.matched_count} caption="распознано" />
+          </View>
 
-      <PrimaryButton title="Начать свайпать" icon="flame" onPress={onContinue} />
+          <PrimaryButton title="Начать свайпать" icon="flame" onPress={onContinue} />
+        </>
+      ) : (
+        <>
+          <View style={{ gap: 10 }}>
+            <View style={styles.progressRow}>
+              <ActivityIndicator color={theme.accent} />
+              <Text style={styles.progressText}>
+                Разбираем треки: {progress.analyzed_count} из {progress.track_count}
+              </Text>
+            </View>
+
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${Math.round(share * 100)}%` }]} />
+            </View>
+
+            <Text style={styles.note}>
+              Мы ищем каждый трек в музыкальном каталоге, чтобы узнать его жанр и год.
+              Большой плейлист занимает пару минут — экран можно не держать открытым,
+              разбор идёт на сервере.
+            </Text>
+          </View>
+
+          {progress.analyzed_count > 0 ? (
+            <SecondaryButton
+              title="Перейти в ленту"
+              icon="arrow-forward"
+              onPress={onContinue}
+              tint={theme.textSecondary}
+            />
+          ) : null}
+        </>
+      )}
     </Card>
   );
 }
@@ -303,25 +354,19 @@ const styles = StyleSheet.create({
   },
   platformName: { color: theme.textSecondary, fontSize: 14 },
 
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-  },
-  overlayCard: {
-    padding: 28,
-    borderRadius: 20,
-    backgroundColor: theme.surface,
-    alignItems: 'center',
-    gap: 18,
-  },
-  overlayText: { color: theme.textPrimary, fontSize: 15, textAlign: 'center' },
-
   resultHeader: { flexDirection: 'row', gap: 14, alignItems: 'center' },
   resultTitle: { color: theme.textPrimary, fontSize: 17, fontWeight: '700' },
   resultMeta: { color: theme.textSecondary, fontSize: 12, marginTop: 4 },
+
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  progressText: { color: theme.textPrimary, fontSize: 15, fontWeight: '500' },
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    overflow: 'hidden',
+  },
+  progressFill: { height: 6, borderRadius: 3, backgroundColor: theme.accent },
 
   stats: { flexDirection: 'row', gap: 28 },
   statValue: { color: theme.accent, fontSize: 22, fontWeight: '800' },

@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import type {
   ImportPlaylistResult,
   LikedTrack,
+  PlaylistProgress,
   PlaylistSummary,
   RebuildProfileResult,
   RecommendResult,
@@ -53,6 +54,13 @@ export async function importPlaylist(url: string): Promise<ImportPlaylistResult>
   });
   if (error) throw error;
   return data as ImportPlaylistResult;
+}
+
+export async function playlistProgress(playlistId: string): Promise<PlaylistProgress | null> {
+  const { data, error } = await supabase.rpc('playlist_progress', { p_playlist_id: playlistId });
+  if (error) throw error;
+  const rows = (data ?? []) as PlaylistProgress[];
+  return rows[0] ?? null;
 }
 
 export async function rebuildProfile(): Promise<RebuildProfileResult> {

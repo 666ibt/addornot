@@ -1,24 +1,22 @@
 import { errorResponse, jsonResponse, preflight } from "../_shared/cors.ts";
 import { adminClient, AuthError, requireUser } from "../_shared/db.ts";
+import { invokeFunction, runInBackground } from "../_shared/background.ts";
 import { fetchPlaylist } from "../_shared/providers/index.ts";
-import { resolveRawTracks, upsertCatalog } from "../_shared/catalog.ts";
-import { buildTasteProfile, evenSample, mergeWeights } from "../_shared/taste.ts";
-import { generateRecommendations } from "../_shared/engine.ts";
-import { ImportError, type CatalogTrack } from "../_shared/types.ts";
+import { ImportError } from "../_shared/types.ts";
 
 /**
  * POST /functions/v1/import-playlist  { "url": "https://open.spotify.com/playlist/..." }
  *
- * Полный цикл онбординга: разобрать ссылку -> вытащить треки -> сопоставить их
- * с каталогом -> построить вкусовой профиль -> набрать первую ленту карточек.
+ * Забирает плейлист с исходной платформы, сохраняет его состав и сразу
+ * отвечает клиенту. Сопоставление с каталогом идёт отдельно, порциями
+ * (см. process-playlist): оно упирается во внешнее API и на большом плейлисте
+ * заведомо не уложится в один запрос.
+ *
+ * Клиент получает id плейлиста и следит за ходом разбора через RPC
+ * playlist_progress().
  */
 
-// Сколько треков сохраняем и сколько из них реально анализируем.
-// Анализ упирается во внешнее API, поэтому у длинных плейлистов берём
-// равномерную выборку — вкус она описывает не хуже, чем весь список.
 const MAX_STORED_TRACKS = 500;
-const MAX_ANALYZED_TRACKS = 100;
-const FIRST_DECK_SIZE = 30;
 
 Deno.serve(async (req) => {
   const options = preflight(req);
@@ -52,12 +50,15 @@ Deno.serve(async (req) => {
   let playlistId: string | null = null;
 
   try {
-    // 1. Забираем треки с исходной платформы.
+    // 1. Забираем треки с исходной платформы. Это единственная медленная
+    //    часть, которую нельзя отложить: без списка треков нечего показывать.
     const { ref, playlist } = await fetchPlaylist(url);
 
     if (playlist.tracks.length === 0) {
       throw new ImportError("В плейлисте нет треков", "empty_playlist", 422);
     }
+
+    const stored = playlist.tracks.slice(0, MAX_STORED_TRACKS);
 
     // 2. Заводим запись плейлиста.
     const { data: created, error: createError } = await admin
@@ -71,7 +72,7 @@ Deno.serve(async (req) => {
         cover_url: playlist.coverUrl,
         owner_name: playlist.ownerName,
         status: "importing",
-        track_count: playlist.tracks.length,
+        track_count: stored.length,
       })
       .select("id")
       .single();
@@ -81,82 +82,26 @@ Deno.serve(async (req) => {
     }
     playlistId = created.id as string;
 
-    const stored = playlist.tracks.slice(0, MAX_STORED_TRACKS);
-
-    // 3. Сопоставляем с каталогом (равномерная выборка для длинных плейлистов).
-    const sampleIndexes = evenSample(stored.length, MAX_ANALYZED_TRACKS);
-    const sample = sampleIndexes.map((index) => stored[index]);
-    const resolved = await resolveRawTracks(sample, { concurrency: 6, albumDetail: true });
-
-    const catalogTracks: CatalogTrack[] = resolved
-      .map((item) => item.catalog)
-      .filter((track): track is CatalogTrack => track !== null);
-
-    const trackIds = await upsertCatalog(admin, catalogTracks);
-
-    // 4. Пишем состав плейлиста.
-    // resolved[i] соответствует sampleIndexes[i] — восстанавливаем связь
-    // «позиция в плейлисте -> найденный трек».
-    const catalogByPosition = new Map<number, CatalogTrack | null>();
-    sampleIndexes.forEach((position, slot) => {
-      catalogByPosition.set(position, resolved[slot]?.catalog ?? null);
-    });
-
-    const rows = stored.map((raw, index) => {
-      const catalog = catalogByPosition.get(index) ?? null;
-      return {
-        playlist_id: playlistId,
-        position: index,
-        raw_title: raw.title,
-        raw_artist: raw.artist,
-        raw_album: raw.album ?? null,
-        isrc: raw.isrc ?? null,
-        track_id: catalog ? trackIds.get(catalog.provider_id) ?? null : null,
-      };
-    });
+    // 3. Сохраняем состав целиком. Даже несопоставленные треки полезны:
+    //    по ним лента отсеивает то, что у пользователя уже есть.
+    const rows = stored.map((raw, index) => ({
+      playlist_id: playlistId,
+      position: index,
+      raw_title: raw.title,
+      raw_artist: raw.artist,
+      raw_album: raw.album ?? null,
+      isrc: raw.isrc ?? null,
+      track_id: null,
+    }));
 
     for (let i = 0; i < rows.length; i += 200) {
       const { error } = await admin.from("playlist_tracks").insert(rows.slice(i, i + 200));
       if (error) throw new Error(`Не удалось сохранить треки плейлиста: ${error.message}`);
     }
 
-    // 5. Строим вкусовой профиль и складываем его с уже накопленным.
-    const taste = buildTasteProfile(catalogTracks);
-
-    const { data: existing } = await admin
-      .from("taste_profiles")
-      .select("genre_weights, artist_weights, decade_weights, seed_artists, version")
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    const { error: profileError } = await admin
-      .from("taste_profiles")
-      .upsert({
-        user_id: userId,
-        genre_weights: mergeWeights(existing?.genre_weights, taste.genre_weights),
-        artist_weights: mergeWeights(existing?.artist_weights, taste.artist_weights),
-        decade_weights: mergeWeights(existing?.decade_weights, taste.decade_weights),
-        avg_bpm: taste.avg_bpm,
-        avg_year: taste.avg_year,
-        seed_artists: taste.seed_artists,
-        version: (existing?.version ?? 0) + 1,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" });
-
-    if (profileError) {
-      throw new Error(`Не удалось сохранить вкусовой профиль: ${profileError.message}`);
-    }
-
-    await admin.from("profiles").update({ onboarded: true }).eq("id", userId);
-
-    // 6. Первая пачка карточек.
-    const deck = await generateRecommendations(admin, userId, FIRST_DECK_SIZE);
-
-    const matched = catalogTracks.length;
-    await admin
-      .from("playlists")
-      .update({ status: "ready", matched_count: matched, error_message: null })
-      .eq("id", playlistId);
+    // 4. Разбор уходит в фон, ответ отдаём сейчас.
+    const startedId = playlistId;
+    runInBackground(invokeFunction("process-playlist", { playlist_id: startedId }));
 
     return jsonResponse({
       playlist: {
@@ -166,18 +111,8 @@ Deno.serve(async (req) => {
         cover_url: playlist.coverUrl,
         owner_name: playlist.ownerName,
         track_count: stored.length,
-        analyzed_count: sample.length,
-        matched_count: matched,
+        status: "importing",
       },
-      taste: {
-        top_genres: Object.entries(taste.genre_weights)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 6)
-          .map(([genre, weight]) => ({ genre, weight })),
-        avg_year: taste.avg_year,
-        avg_bpm: taste.avg_bpm,
-      },
-      deck_prepared: deck.inserted,
     });
   } catch (error) {
     if (playlistId) {

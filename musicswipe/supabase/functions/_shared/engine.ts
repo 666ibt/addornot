@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "./db.ts";
 import { upsertCatalog } from "./catalog.ts";
+import { trackKey } from "./matching.ts";
 import { recommend, type ProfileWeights, type SeedArtist } from "./recommender.ts";
 
 /**
@@ -11,15 +12,17 @@ export async function generateRecommendations(
   userId: string,
   limit = 30,
 ): Promise<{ inserted: number; reason?: string }> {
-  const [{ data: profileRow }, { data: seedRows }, { data: knownRows }] = await Promise.all([
-    admin
-      .from("taste_profiles")
-      .select("genre_weights, artist_weights, decade_weights, avg_bpm, avg_year")
-      .eq("user_id", userId)
-      .maybeSingle(),
-    admin.rpc("seed_artist_ids", { p_user_id: userId, p_limit: 12 }),
-    admin.rpc("known_provider_ids", { p_user_id: userId }),
-  ]);
+  const [{ data: profileRow }, { data: seedRows }, { data: knownRows }, { data: knownTitleRows }] =
+    await Promise.all([
+      admin
+        .from("taste_profiles")
+        .select("genre_weights, artist_weights, decade_weights, avg_bpm, avg_year")
+        .eq("user_id", userId)
+        .maybeSingle(),
+      admin.rpc("seed_artist_ids", { p_user_id: userId, p_limit: 12 }),
+      admin.rpc("known_provider_ids", { p_user_id: userId }),
+      admin.rpc("known_track_titles", { p_user_id: userId }),
+    ]);
 
   const seeds: SeedArtist[] = (seedRows ?? []).map((row: Record<string, unknown>) => ({
     provider_id: String(row.provider_id),
@@ -42,7 +45,19 @@ export async function generateRecommendations(
     (knownRows ?? []).map((row: Record<string, unknown>) => String(row.provider_id)),
   );
 
-  const recommendations = await recommend({ profile, seeds, knownProviderIds, limit });
+  const knownTrackKeys = new Set<string>(
+    (knownTitleRows ?? []).map((row: Record<string, unknown>) =>
+      trackKey(String(row.artist ?? ""), String(row.title ?? ""))
+    ),
+  );
+
+  const recommendations = await recommend({
+    profile,
+    seeds,
+    knownProviderIds,
+    knownTrackKeys,
+    limit,
+  });
   if (recommendations.length === 0) {
     return { inserted: 0, reason: "no_candidates" };
   }

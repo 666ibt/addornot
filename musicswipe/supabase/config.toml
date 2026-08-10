@@ -38,6 +38,11 @@ enable_confirmations = false
 [functions.import-playlist]
 verify_jwt = true
 
+# Вызывается только другими функциями под service_role, поэтому свою
+# проверку делает сама (isServiceRequest), а verify_jwt здесь не помощник.
+[functions.process-playlist]
+verify_jwt = false
+
 [functions.recommend]
 verify_jwt = true
 

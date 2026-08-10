@@ -1,4 +1,5 @@
 import * as deezer from "./deezer.ts";
+import { trackKey } from "./matching.ts";
 import { topKeys } from "./taste.ts";
 import type { CatalogTrack } from "./types.ts";
 
@@ -58,9 +59,16 @@ export async function recommend(options: {
   profile: ProfileWeights;
   seeds: SeedArtist[];
   knownProviderIds: Set<string>;
+  /**
+   * Ключи «исполнитель + название» того, что пользователь уже знает.
+   * Нужны, потому что совпадение по идентификатору Deezer ловит не всё:
+   * в плейлисте трек мог не дойти до каталога, а тот же трек в другом
+   * издании имеет другой идентификатор.
+   */
+  knownTrackKeys: Set<string>;
   limit: number;
 }): Promise<Recommendation[]> {
-  const { profile, seeds, knownProviderIds, limit } = options;
+  const { profile, seeds, knownProviderIds, knownTrackKeys, limit } = options;
 
   const candidates = await collectCandidates(profile, seeds);
 
@@ -70,6 +78,9 @@ export async function recommend(options: {
     const id = String(candidate.track.id);
     if (knownProviderIds.has(id)) continue;
     if (!candidate.track.preview) continue;
+
+    const key = trackKey(candidate.track.artist?.name ?? "", candidate.track.title);
+    if (knownTrackKeys.has(key)) continue;
 
     const existing = byProviderId.get(id);
     if (!existing || candidate.seedWeight > existing.seedWeight) {
