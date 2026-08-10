@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Скопируйте этот файл рядом под именем Supabase.plist и подставьте значения
+  из панели Supabase: Project Settings -> API.
+
+    cp MusicSwipe/Core/Config/Supabase.example.plist MusicSwipe/Core/Config/Supabase.plist
+
+  Supabase.plist добавлен в .gitignore. Здесь нужен именно anon-ключ:
+  service_role в мобильном приложении хранить нельзя.
+-->
+<plist version="1.0">
+<dict>
+	<key>SUPABASE_URL</key>
+	<string>https://ВАШ_ПРОЕКТ.supabase.co</string>
+	<key>SUPABASE_ANON_KEY</key>
+	<string>ВАШ_ANON_КЛЮЧ</string>
+</dict>
+</plist>

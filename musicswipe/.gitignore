@@ -1,0 +1,16 @@
+# Секреты приложения
+ios/MusicSwipe/Core/Config/Supabase.plist
+
+# Секреты Supabase
+supabase/.env
+supabase/.env.local
+supabase/.branches/
+supabase/.temp/
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+*.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+.DS_Store

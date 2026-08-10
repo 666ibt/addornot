@@ -1,0 +1,45 @@
+# Конфигурация локального стека Supabase.
+# Полный список опций: https://supabase.com/docs/guides/local-development/cli/config
+project_id = "musicswipe"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "musicswipe://auth-callback"
+additional_redirect_urls = ["musicswipe://auth-callback"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+enable_anonymous_sign_ins = true
+
+[auth.email]
+enable_signup = true
+# Для мобильного онбординга подтверждение почты по ссылке только мешает.
+# Включите его перед публикацией в App Store, если нужен верифицированный e-mail.
+enable_confirmations = false
+
+# Функции сами проверяют Authorization и достают пользователя,
+# но verify_jwt оставлен включённым: анонимные вызовы отсекаются на входе.
+[functions.import-playlist]
+verify_jwt = true
+
+[functions.recommend]
+verify_jwt = true
+
+[functions.rebuild-profile]
+verify_jwt = true
