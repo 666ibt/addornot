@@ -14,3 +14,9 @@ DerivedData/
 build/
 *.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
 .DS_Store
+
+# Expo
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile/.env

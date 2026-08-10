@@ -48,6 +48,34 @@ jobs:
         working-directory: musicswipe
         run: deno check supabase/functions/*/index.ts
 
+  mobile:
+    name: Приложение Expo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: musicswipe/mobile/package-lock.json
+
+      - name: Зависимости
+        working-directory: musicswipe/mobile
+        run: npm ci
+
+      - name: Проверка типов
+        working-directory: musicswipe/mobile
+        run: npx tsc --noEmit
+
+      - name: Сборка бандла
+        working-directory: musicswipe/mobile
+        env:
+          EXPO_NO_TELEMETRY: "1"
+        # Metro собирает iOS-бандл и на Linux: ошибки импортов и структуры
+        # маршрутов ловятся здесь, без macOS-раннера и его множителя минут.
+        run: npx expo export --platform ios --output-dir dist
+
   ios:
     name: Сборка iOS и скриншот
     runs-on: macos-15
