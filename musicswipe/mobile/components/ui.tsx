@@ -262,10 +262,9 @@ export function ConfigurationNeeded({ problem }: { problem: string | null }) {
       </Text>
 
       <Text style={styles.configHighlight}>
-        После правки .env перезапустите сборку с очисткой кэша:{' '}
-        <Text style={styles.mono}>npx expo start --clear</Text>. Без --clear Metro
-        переиспользует результат прошлой сборки, где переменных ещё не было, —
-        и этот экран останется, даже если .env уже правильный.
+        Что именно не так, скажет команда <Text style={styles.mono}>npm run doctor</Text>{' '}
+        в папке mobile: она печатает значения ровно в том виде, в каком их видит
+        приложение, и проверяет, отвечает ли проект Supabase.
       </Text>
     </ScrollView>
   );

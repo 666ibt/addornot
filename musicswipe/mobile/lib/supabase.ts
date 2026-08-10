@@ -1,10 +1,23 @@
 import { createClient } from '@supabase/supabase-js';
+import Constants from 'expo-constants';
 import { AppState } from 'react-native';
 
 import { secureStorage } from './secure-storage';
 
-const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+/**
+ * Настройки берём из манифеста (`extra`, заполняется в app.config.js),
+ * а `process.env` оставляем запасным вариантом.
+ *
+ * Манифест приезжает при каждом запуске дев-сервера, тогда как значения
+ * `process.env.EXPO_PUBLIC_*` вшиваются в бандл и залипают в кэше Metro.
+ */
+const extra = (Constants.expoConfig?.extra ?? {}) as {
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+};
+
+const url = (extra.supabaseUrl || process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
+const anonKey = (extra.supabaseAnonKey || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '').trim();
 
 /**
  * Что именно не так с настройками, если не так.
