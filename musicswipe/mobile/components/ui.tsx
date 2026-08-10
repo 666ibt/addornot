@@ -13,6 +13,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { backgroundGradient, brandGradient, theme } from '../lib/theme';
 
 /** Фон, общий для всех экранов. */
@@ -213,17 +215,58 @@ export function Loader({ label }: { label?: string }) {
 }
 
 /** Экран для случая «забыли положить .env». */
-export function ConfigurationNeeded() {
+export function ConfigurationNeeded({ problem }: { problem: string | null }) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <ScrollView contentContainerStyle={{ padding: 24, gap: 16 }}>
-      <Text style={styles.emptyTitle}>Приложение не настроено</Text>
-      <Text style={styles.emptyMessage}>
-        Создайте файл .env по образцу .env.example и укажите адрес проекта и anon-ключ
-        (Supabase → Project Settings → API), затем перезапустите expo start.
+    <ScrollView
+      contentContainerStyle={{
+        padding: 24,
+        paddingTop: insets.top + 24,
+        paddingBottom: insets.bottom + 24,
+        gap: 16,
+      }}
+    >
+      <Text style={styles.configTitle}>Приложение не настроено</Text>
+
+      {problem ? (
+        <View style={styles.problem}>
+          <Text style={styles.problemText}>{problem}</Text>
+        </View>
+      ) : null}
+
+      <Text style={styles.configText}>
+        Значения берутся из файла <Text style={styles.mono}>.env</Text> в папке{' '}
+        <Text style={styles.mono}>mobile</Text>. Порядок такой:
       </Text>
+
       <Card style={{ padding: 14 }}>
-        <Text style={styles.mono}>cp .env.example .env</Text>
+        <Text style={styles.mono}>cd musicswipe/mobile{'\n'}cp .env.example .env</Text>
       </Card>
+
+      <Text style={styles.configText}>
+        Затем откройте .env и подставьте свои значения вместо заглушек:
+      </Text>
+
+      <Card style={{ padding: 14 }}>
+        <Text style={styles.mono}>
+          EXPO_PUBLIC_SUPABASE_URL=https://xxx.supabase.co{'\n'}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGci...
+        </Text>
+      </Card>
+
+      <Text style={styles.configText}>
+        URL и ключ покажет команда{' '}
+        <Text style={styles.mono}>supabase projects api-keys --project-ref &lt;ref&gt;</Text>;
+        нужен ключ anon (или publishable), но не service_role.
+      </Text>
+
+      <Text style={styles.configHighlight}>
+        После правки .env перезапустите сборку с очисткой кэша:{' '}
+        <Text style={styles.mono}>npx expo start --clear</Text>. Без --clear Metro
+        переиспользует результат прошлой сборки, где переменных ещё не было, —
+        и этот экран останется, даже если .env уже правильный.
+      </Text>
     </ScrollView>
   );
 }
@@ -298,5 +341,16 @@ const styles = StyleSheet.create({
   },
   barFill: { height: 8, borderRadius: 999 },
 
+  configTitle: { color: theme.textPrimary, fontSize: 24, fontWeight: '700' },
+  configText: { color: theme.textSecondary, fontSize: 14, lineHeight: 20 },
+  configHighlight: { color: theme.accent, fontSize: 13, lineHeight: 19 },
+  problem: {
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: 'rgba(250,82,92,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(250,82,92,0.35)',
+  },
+  problemText: { color: theme.textPrimary, fontSize: 14, lineHeight: 20 },
   mono: { color: theme.textPrimary, fontFamily: 'Courier', fontSize: 13 },
 });

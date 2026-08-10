@@ -7,15 +7,35 @@ const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
 /**
- * Настроено ли приложение. Без ключей не падаем, а показываем экран
- * с инструкцией — так проект можно склонировать и запустить,
- * не гадая, почему пустой экран.
+ * Что именно не так с настройками, если не так.
+ *
+ * Без ключей приложение не падает, а показывает экран с инструкцией. Экран
+ * называет конкретную причину: «переменные не подставились» и «в них остались
+ * заглушки» лечатся по-разному, а внешне выглядят одинаково.
+ *
+ * Значение ключа наружу не выводим — только факт его наличия.
  */
-export const isConfigured =
-  url.length > 0 &&
-  anonKey.length > 0 &&
-  !url.includes('ВАШ_') &&
-  !anonKey.includes('ВАШ_');
+function detectConfigProblem(): string | null {
+  if (url.length === 0 && anonKey.length === 0) {
+    return 'Ни одна переменная не подставилась — файл .env не найден, пуст или лежит не в папке mobile.';
+  }
+  if (url.length === 0) {
+    return 'Не задана EXPO_PUBLIC_SUPABASE_URL.';
+  }
+  if (anonKey.length === 0) {
+    return 'Не задана EXPO_PUBLIC_SUPABASE_ANON_KEY.';
+  }
+  if (url.includes('ВАШ_') || anonKey.includes('ВАШ_')) {
+    return 'В .env остались значения-заглушки из .env.example — их нужно заменить на свои.';
+  }
+  if (!url.startsWith('http')) {
+    return `EXPO_PUBLIC_SUPABASE_URL должна начинаться с https:// — сейчас там «${url}».`;
+  }
+  return null;
+}
+
+export const configProblem = detectConfigProblem();
+export const isConfigured = configProblem === null;
 
 export const supabase = createClient(
   isConfigured ? url : 'https://placeholder.supabase.co',

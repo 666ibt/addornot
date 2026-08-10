@@ -7,7 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ConfigurationNeeded, Loader } from '../components/ui';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { OnboardingProvider, useOnboarding } from '../lib/onboarding';
-import { isConfigured } from '../lib/supabase';
+import { configProblem, isConfigured } from '../lib/supabase';
 import { theme } from '../lib/theme';
 
 export default function RootLayout() {
@@ -22,7 +22,7 @@ export default function RootLayout() {
             </OnboardingProvider>
           </AuthProvider>
         ) : (
-          <ConfigurationNeeded />
+          <ConfigurationNeeded problem={configProblem} />
         )}
       </View>
     </SafeAreaProvider>
