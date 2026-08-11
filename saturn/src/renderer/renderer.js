@@ -722,7 +722,7 @@ function renderImgCards() {
     card.innerHTML = `
       <div class="thumb">${it.thumb ? `<img src="${it.thumb}" alt="фото" />` : '<span class="placeholder">нет превью</span>'}</div>
       <div class="body">
-        <div class="meta"><span class="src">${escapeHtml(it.fileName)}</span></div>
+        <div class="meta"><span class="src">${escapeHtml(it.fileName)}</span>${it.reoriented ? '<span class="badge reor" title="У фото был EXIF-поворот — в PDF оно будет выправлено автоматически">↻ авто-поворот</span>' : ''}</div>
         ${nameField}
         <div class="actions">
           <button class="save-one" data-save-i>💾 Сохранить этот</button>

@@ -13,6 +13,7 @@ const { extractWithClaude } = require('./ai');
 const { extract, makeFilename, sanitizeForFilename } = require('./extract');
 const { parseApproval } = require('./extract-approval');
 const { buildSortPlan } = require('./sort');
+const { readJpegOrientation, orientationPlan } = require('./exif');
 const { getSettings, setSettings } = require('./settings');
 
 let mainWindow = null;
@@ -491,13 +492,18 @@ ipcMain.handle('img:pick', async () => {
   const out = [];
   for (const filePath of res.filePaths) {
     let thumb = '';
+    let reoriented = false;
     try {
+      const buf = await fs.readFile(filePath);
+      if (/\.jpe?g$/i.test(filePath)) {
+        reoriented = orientationPlan(readJpegOrientation(buf)).changed;
+      }
       const Jimp = require('jimp');
-      const img = await Jimp.read(filePath);
+      const img = await Jimp.read(buf);
       if (img.bitmap.width > 400) img.resize(400, Jimp.AUTO);
       thumb = `data:image/jpeg;base64,${(await img.quality(70).getBufferAsync(Jimp.MIME_JPEG)).toString('base64')}`;
     } catch (_) { /* ignore preview failure */ }
-    out.push({ filePath, fileName: path.basename(filePath), thumb });
+    out.push({ filePath, fileName: path.basename(filePath), thumb, reoriented });
   }
   return out;
 });

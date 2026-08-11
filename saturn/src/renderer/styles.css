@@ -247,6 +247,7 @@ button.ghost:hover { border-color: #3a4552; }
 .badge.medium { background: rgba(251,191,36,.15); color: var(--amber); }
 .badge.low { background: rgba(248,113,113,.15); color: var(--red); }
 .badge.ai { background: rgba(59,130,246,.15); color: #7cabff; }
+.badge.reor { background: rgba(139,197,63,.15); color: #a3d55f; }
 .card.saved { outline: 2px solid var(--green); }
 .card.error { outline: 2px solid var(--red); }
 

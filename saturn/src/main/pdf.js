@@ -3,6 +3,7 @@
 const fs = require('fs/promises');
 const path = require('path');
 const { PDFDocument, degrees } = require('pdf-lib');
+const { readJpegOrientation, orientationPlan } = require('./exif');
 
 /**
  * PDF helpers:
@@ -121,14 +122,27 @@ async function splitPage(filePath, pageIndex, outPath, rotation = 0) {
  * decoded to PNG. A TIFF may hold several pages (typical for scanned
  * documents), so EVERY page is returned, in order.
  *
- * @returns {Promise<{fmt: 'png'|'jpg', bytes: Buffer}[]>} one entry per page
+ * Each entry also carries `rotate` (0/90/180/270) — the page rotation needed to
+ * honor a JPEG's EXIF orientation without re-encoding the pixels.
+ *
+ * @returns {Promise<{fmt: 'png'|'jpg', bytes: Buffer, rotate: number}[]>} one entry per page
  */
 async function imageToPngBuffers(imagePath) {
   const bytes = await fs.readFile(imagePath);
   const ext = path.extname(imagePath).toLowerCase();
 
-  if (ext === '.png') return [{ fmt: 'png', bytes }];
-  if (ext === '.jpg' || ext === '.jpeg') return [{ fmt: 'jpg', bytes }];
+  if (ext === '.png') return [{ fmt: 'png', bytes, rotate: 0 }];
+  if (ext === '.jpg' || ext === '.jpeg') {
+    // Honor the EXIF Orientation tag so phone photos aren't sideways. Pure
+    // rotations (the common 90/180/270 cases) become a PDF page rotation — the
+    // JPEG bytes stay untouched, so quality is preserved. The rare mirrored
+    // orientations (2,4,5,7) need a real horizontal flip, so those re-encode.
+    const plan = orientationPlan(readJpegOrientation(bytes));
+    if (!plan.flipH) return [{ fmt: 'jpg', bytes, rotate: plan.rotate }];
+    const Jimp = require('jimp');
+    const img = (await Jimp.read(bytes)).flip(true, false);
+    return [{ fmt: 'jpg', bytes: await img.quality(92).getBufferAsync(Jimp.MIME_JPEG), rotate: plan.rotate }];
+  }
 
   if (ext === '.tif' || ext === '.tiff') {
     const UTIF = require('utif2');
@@ -142,7 +156,7 @@ async function imageToPngBuffers(imagePath) {
       const img = await new Promise((resolve, reject) =>
         new Jimp(ifd.width, ifd.height, (err, image) => (err ? reject(err) : resolve(image))));
       img.bitmap.data = Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength);
-      pages.push({ fmt: 'png', bytes: await img.getBufferAsync(Jimp.MIME_PNG) });
+      pages.push({ fmt: 'png', bytes: await img.getBufferAsync(Jimp.MIME_PNG), rotate: 0 });
     }
     return pages;
   }
@@ -150,16 +164,19 @@ async function imageToPngBuffers(imagePath) {
   // Unknown extension: let Jimp try (bmp/gif…), fall back to PNG.
   const Jimp = require('jimp');
   const img = await Jimp.read(bytes);
-  return [{ fmt: 'png', bytes: await img.getBufferAsync(Jimp.MIME_PNG) }];
+  return [{ fmt: 'png', bytes: await img.getBufferAsync(Jimp.MIME_PNG), rotate: 0 }];
 }
 
 /** Embed one image file's page(s) into `doc`, one PDF page per image page. */
 async function addImageFilePages(doc, imagePath) {
   const pages = await imageToPngBuffers(imagePath);
-  for (const { fmt, bytes } of pages) {
+  for (const { fmt, bytes, rotate } of pages) {
     const img = fmt === 'png' ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
     const page = doc.addPage([img.width, img.height]);
     page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+    // Apply the EXIF-derived rotation at the page level (viewer rotates it
+    // upright); keeps the embedded JPEG untouched for the common cases.
+    if (rotate) page.setRotation(degrees(rotate));
   }
 }
 

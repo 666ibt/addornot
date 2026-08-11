@@ -37,7 +37,7 @@ jobs:
         run: npm install
 
       - name: Run unit tests
-        run: node --test test/extract.test.js test/approval.test.js test/sort.test.js
+        run: node --test test/extract.test.js test/approval.test.js test/sort.test.js test/exif.test.js
 
       - name: Build Windows installer
         run: npm run dist:win
@@ -54,14 +54,24 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.9.0
-          name: Saturn v1.9.0
+          tag_name: v1.9.1
+          name: Saturn v1.9.1
           target_commitish: ${{ github.sha }}
           files: saturn/release/*.exe
           body: |
             Готовое приложение для Windows. Node.js и терминал не требуются.
             Словари распознавания (рус+англ) встроены — работает офлайн,
             интернет не нужен.
+
+            **Saturn 1.9.1 — «Фото → PDF»: авто-поворот по EXIF:**
+            - Фотографии с телефона больше не ложатся боком. Приложение читает
+              EXIF-тег ориентации и разворачивает снимок как надо. Для обычных
+              поворотов (90/180/270°) качество JPEG сохраняется полностью —
+              поворот применяется на уровне страницы PDF, без переупаковки.
+            - У фото, которое было повёрнуто, в карточке появляется пометка
+              «↻ авто-поворот» — видно, что снимок будет выправлен.
+            - На распознавание ТТН это не влияет (там на вход идут PDF-сканы
+              без EXIF — ориентация по-прежнему определяется по содержимому).
 
             **Saturn 1.9.0 — новый инструмент «Сортировка накладных»:**
             - Раскладывает готовые файлы вида `{накладная}_{договор}.pdf` по
