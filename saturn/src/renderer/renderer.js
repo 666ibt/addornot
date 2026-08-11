@@ -62,6 +62,7 @@ const TOOLS = {
   },
   img: { title: 'Фото → PDF', hint: '' },
   merge: { title: 'Объединить PDF', hint: '' },
+  sort: { title: 'Сортировка накладных', hint: '' },
 };
 
 const state = {
@@ -128,6 +129,7 @@ function showHome() {
   $('pdfView').classList.add('hidden');
   $('imgView').classList.add('hidden');
   $('mergeView').classList.add('hidden');
+  $('sortView').classList.add('hidden');
   $('homeBtn').classList.add('hidden');
   $('subTitle').textContent = 'Набор инструментов для документов';
 }
@@ -149,8 +151,18 @@ function openTool(tool) {
     state.view = 'merge';
     $('pdfView').classList.add('hidden');
     $('imgView').classList.add('hidden');
+    $('sortView').classList.add('hidden');
     $('mergeView').classList.remove('hidden');
     mergeReset();
+    return;
+  }
+  if (tool === 'sort') {
+    state.view = 'sort';
+    $('pdfView').classList.add('hidden');
+    $('imgView').classList.add('hidden');
+    $('mergeView').classList.add('hidden');
+    $('sortView').classList.remove('hidden');
+    sortReset();
     return;
   }
   // pdf tools
@@ -158,6 +170,7 @@ function openTool(tool) {
   state.mode = tool;
   $('imgView').classList.add('hidden');
   $('mergeView').classList.add('hidden');
+  $('sortView').classList.add('hidden');
   $('pdfView').classList.remove('hidden');
   $('dzHint').textContent = TOOLS[tool].hint;
   resetPdf();
@@ -945,6 +958,179 @@ async function mergeSaveOne(i, card) {
   }
 }
 
+// --- Сортировка накладных --------------------------------------------------
+const sortState = { source: '', dest: '', report: null, busy: false };
+
+function sortReset() {
+  sortState.source = '';
+  sortState.dest = '';
+  sortState.report = null;
+  sortState.busy = false;
+  $('sortSrcLabel').textContent = 'не выбрана';
+  $('sortSrcLabel').classList.add('muted');
+  $('sortDestLabel').textContent = 'не выбрана';
+  $('sortDestLabel').classList.add('muted');
+  $('sortReport').classList.add('hidden');
+  $('sortReport').innerHTML = '';
+  sortUpdateButtons();
+}
+
+function sortUpdateButtons() {
+  const ready = !!sortState.source && !!sortState.dest && !sortState.busy;
+  $('sortDryBtn').disabled = !ready;
+  // Apply only after a dry run has produced a plan with something to move.
+  $('sortApplyBtn').disabled = !ready || !sortState.report ||
+    (sortState.report.toSort === 0 && sortState.report.problems === 0);
+}
+
+async function sortPickSource() {
+  const dir = await api.sortPickSource();
+  if (!dir) return;
+  sortState.source = dir;
+  sortState.report = null; // picking a new folder invalidates the old plan
+  $('sortReport').classList.add('hidden');
+  const el = $('sortSrcLabel');
+  el.textContent = dir; el.classList.remove('muted');
+  sortUpdateButtons();
+}
+
+async function sortPickDest() {
+  const dir = await api.sortPickDest();
+  if (!dir) return;
+  sortState.dest = dir;
+  sortState.report = null;
+  $('sortReport').classList.add('hidden');
+  const el = $('sortDestLabel');
+  el.textContent = dir; el.classList.remove('muted');
+  sortUpdateButtons();
+}
+
+async function sortDryRun() {
+  if (!sortState.source || !sortState.dest) return;
+  sortState.busy = true;
+  sortUpdateButtons();
+  showProcLoader();
+  try {
+    const report = await api.sortPlan({ sourceDir: sortState.source, destDir: sortState.dest });
+    sortState.report = report;
+    renderSortReport(report, false);
+    toast(`План готов: к сортировке ${report.toSort}, проблемных ${report.problems}.`, 'ok');
+  } catch (err) {
+    toast(`Ошибка анализа: ${err.message || err}`, 'err');
+  } finally {
+    sortState.busy = false;
+    hideProcLoader();
+    sortUpdateButtons();
+  }
+}
+
+async function sortApply() {
+  if (!sortState.report) return;
+  const n = sortState.report.toSort + sortState.report.problems;
+  if (!window.confirm(`Переместить ${n} файлов? Действие изменит папки на диске.`)) return;
+  sortState.busy = true;
+  sortUpdateButtons();
+  showProcLoader();
+  try {
+    const res = await api.sortApply({ sourceDir: sortState.source, destDir: sortState.dest });
+    applySortResult(res);
+    const msg = `Перемещено ${res.moved}` +
+      (res.unsortedMoved ? `, в «неотсортированные» ${res.unsortedMoved}` : '') +
+      (res.failed ? `, ошибок ${res.failed}` : '');
+    toast(msg + '.', res.failed ? 'err' : 'ok');
+    // Files have moved — the plan no longer reflects the source folder.
+    sortState.report = null;
+    $('sortApplyBtn').disabled = true;
+  } catch (err) {
+    toast(`Ошибка сортировки: ${err.message || err}`, 'err');
+  } finally {
+    sortState.busy = false;
+    hideProcLoader();
+  }
+}
+
+// Overlay per-file move outcomes (✓ / ✗) onto the already-rendered report.
+function applySortResult(res) {
+  const byName = new Map();
+  for (const r of res.results || []) byName.set(r.fileName + '|' + r.folder, r);
+  document.querySelectorAll('#sortReport .sort-file').forEach((row) => {
+    const key = row.dataset.file + '|' + row.dataset.folder;
+    const r = byName.get(key);
+    if (!r) return;
+    row.classList.add(r.ok ? 'moved' : 'failed');
+    const st = row.querySelector('.sort-file-status');
+    if (st) st.textContent = r.ok ? '✓' : '✗';
+    if (!r.ok && r.error) row.title = r.error;
+  });
+  const opened = res.unsortedDir || (sortState.source + '/неотсортированные');
+  const banner = document.querySelector('#sortReport .sort-done');
+  if (banner) {
+    banner.classList.remove('hidden');
+    banner.textContent = `Готово. Перемещено ${res.moved}` +
+      (res.unsortedMoved ? `; проблемных в «неотсортированные»: ${res.unsortedMoved}` : '') +
+      (res.failed ? `; ошибок: ${res.failed}` : '') + '.';
+  }
+  if (res.unsortedMoved) { try { api.openPath(opened); } catch (_) {} }
+}
+
+function sortStat(label, value, kind) {
+  return `<div class="sort-stat ${kind || ''}"><div class="sort-stat-n">${value}</div>` +
+    `<div class="sort-stat-l">${label}</div></div>`;
+}
+
+function renderSortReport(report, applied) {
+  const wrap = $('sortReport');
+  const parts = [];
+
+  parts.push(`<div class="sort-stats">
+    ${sortStat('всего PDF', report.totalPdf)}
+    ${sortStat('к сортировке', report.toSort, 'good')}
+    ${sortStat('папок договоров', report.folderCount)}
+    ${sortStat('проблемных', report.problems, report.problems ? 'warn' : '')}
+    ${sortStat('совпадений имён', report.conflicts, report.conflicts ? 'warn' : '')}
+  </div>`);
+
+  parts.push(`<div class="sort-done ${applied ? '' : 'hidden'}"></div>`);
+
+  if (report.groups.length) {
+    parts.push('<h3 class="sort-h">По договорам</h3>');
+    for (const g of report.groups) {
+      const rows = g.files.map((f) => `
+        <div class="sort-file" data-file="${escapeHtml(f.fileName)}" data-folder="${escapeHtml(g.folder)}">
+          <span class="sort-file-status"></span>
+          <span class="sort-file-name">${escapeHtml(f.fileName)}</span>
+          ${f.conflict ? `<span class="sort-file-note" title="В целевой папке уже есть такой файл — будет сохранён как ${escapeHtml(f.finalName)}">→ ${escapeHtml(f.finalName)}</span>` : ''}
+        </div>`).join('');
+      parts.push(`<div class="sort-group">
+        <div class="sort-group-head"><span class="sort-folder">📁 ${escapeHtml(g.targetRel)}</span>
+          <span class="sort-group-count">${g.files.length} ${pluralFiles(g.files.length)}</span></div>
+        <div class="sort-group-files">${rows}</div>
+      </div>`);
+    }
+  }
+
+  if (report.unsorted.length) {
+    const rows = report.unsorted.map((u) => `
+      <div class="sort-file" data-file="${escapeHtml(u.fileName)}" data-folder="неотсортированные">
+        <span class="sort-file-status"></span>
+        <span class="sort-file-name">${escapeHtml(u.fileName)}</span>
+        <span class="sort-file-reason">${escapeHtml(u.reason)}</span>
+      </div>`).join('');
+    parts.push(`<div class="sort-group problem">
+      <div class="sort-group-head"><span class="sort-folder">🗃️ неотсортированные</span>
+        <span class="sort-group-count">${report.unsorted.length} ${pluralFiles(report.unsorted.length)}</span></div>
+      <div class="sort-group-files">${rows}</div>
+    </div>`);
+  }
+
+  if (!report.groups.length && !report.unsorted.length) {
+    parts.push('<p class="hint">В выбранной папке нет PDF-файлов накладных.</p>');
+  }
+
+  wrap.innerHTML = parts.join('');
+  wrap.classList.remove('hidden');
+}
+
 // --- settings --------------------------------------------------------------
 async function openSettings() {
   const s = await api.getSettings();
@@ -1053,6 +1239,13 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('mergeRestartBtn').addEventListener('click', mergeReset);
   $('mergePickOutBtn').addEventListener('click', pickOutput);
   $('mergeSaveBtn').addEventListener('click', mergeSave);
+
+  // Сортировка накладных
+  $('sortSrcBtn').addEventListener('click', sortPickSource);
+  $('sortDestBtn').addEventListener('click', sortPickDest);
+  $('sortDryBtn').addEventListener('click', sortDryRun);
+  $('sortApplyBtn').addEventListener('click', sortApply);
+  $('sortRestartBtn').addEventListener('click', sortReset);
 
   // Zoom modal
   $('zoomClose').addEventListener('click', closeZoom);

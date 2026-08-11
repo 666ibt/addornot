@@ -12,6 +12,7 @@ const {
 const { extractWithClaude } = require('./ai');
 const { extract, makeFilename, sanitizeForFilename } = require('./extract');
 const { parseApproval } = require('./extract-approval');
+const { buildSortPlan } = require('./sort');
 const { getSettings, setSettings } = require('./settings');
 
 let mainWindow = null;
@@ -529,6 +530,163 @@ ipcMain.handle('img:save', async (_e, { images, mode, outputDir, combinedName })
   }
   setSettings({ lastOutputDir: outputDir });
   return { outputDir, results };
+});
+
+// ---------------------------------------------------------------------------
+// IPC: Сортировка накладных (filename-based filing into contract folders)
+// ---------------------------------------------------------------------------
+
+const UNSORTED_DIR = 'неотсортированные'; // subfolder in the SOURCE for problems
+const TTN_SUBDIR = 'ТТН';                  // subfolder inside each contract folder
+
+/** Move a file, falling back to copy+unlink when src/dst are on different
+ *  drives (fs.rename throws EXDEV across volumes — common on Windows). */
+async function moveFile(src, dst) {
+  try {
+    await fs.rename(src, dst);
+  } catch (err) {
+    if (err && err.code === 'EXDEV') {
+      await fs.copyFile(src, dst);
+      await fs.unlink(src);
+    } else {
+      throw err;
+    }
+  }
+}
+
+/** Keep folder names safe: never let a parsed contract escape into a path. */
+function safeFolderName(name) {
+  return String(name || '').replace(/[\\/:*?"<>|]/g, '-').replace(/\.+$/, '').trim() || 'NA';
+}
+
+/** Top-level *.pdf file names in a directory (subfolders are ignored, so an
+ *  existing "неотсортированные" folder is never re-processed). */
+async function listPdfNames(dir) {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  return entries.filter((e) => e.isFile() && /\.pdf$/i.test(e.name)).map((e) => e.name);
+}
+
+/**
+ * Build the full sort plan for the UI: where each file would go, with on-disk
+ * collision resolution (so the report shows the real target name, e.g. _2.pdf).
+ * Read-only — safe to run as a dry run.
+ */
+async function buildSortReport(sourceDir, destDir) {
+  const names = await listPdfNames(sourceDir);
+  const plan = buildSortPlan(names);
+
+  const groups = [];
+  let conflicts = 0;
+  for (const g of plan.groups) {
+    const folder = safeFolderName(g.folder);
+    const targetDir = path.join(destDir, folder, TTN_SUBDIR);
+    const used = new Set();
+    const files = [];
+    for (const it of g.items) {
+      // eslint-disable-next-line no-await-in-loop
+      const finalName = await uniqueName(targetDir, it.fileName, used);
+      const conflict = finalName !== it.fileName;
+      if (conflict) conflicts += 1;
+      files.push({
+        fileName: it.fileName, nakladnaya: it.nakladnaya, dogovor: it.dogovor,
+        finalName, conflict,
+      });
+    }
+    groups.push({ folder, targetRel: path.join(folder, TTN_SUBDIR), files });
+  }
+
+  const toSort = groups.reduce((n, g) => n + g.files.length, 0);
+  return {
+    sourceDir, destDir,
+    totalPdf: plan.totalPdf,
+    toSort,
+    problems: plan.unsorted.length,
+    folderCount: groups.length,
+    conflicts,
+    groups,
+    unsorted: plan.unsorted,
+  };
+}
+
+// Two folder pickers. Titles differ so the dialog is self-explanatory.
+ipcMain.handle('sort:pickSource', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Папка с накладными (откуда сортировать)',
+    properties: ['openDirectory'],
+  });
+  return res.canceled ? '' : res.filePaths[0];
+});
+ipcMain.handle('sort:pickDest', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Папка назначения (куда разложить)',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  return res.canceled ? '' : res.filePaths[0];
+});
+
+// Dry run: compute the plan without touching disk.
+ipcMain.handle('sort:plan', async (_e, { sourceDir, destDir }) => {
+  if (!sourceDir) throw new Error('Не выбрана папка с накладными.');
+  if (!destDir) throw new Error('Не выбрана папка назначения.');
+  return buildSortReport(sourceDir, destDir);
+});
+
+// Apply: actually move the files. Re-plans against the current disk state so
+// the run is correct even if files changed since the dry run.
+ipcMain.handle('sort:apply', async (_e, { sourceDir, destDir }) => {
+  if (!sourceDir) throw new Error('Не выбрана папка с накладными.');
+  if (!destDir) throw new Error('Не выбрана папка назначения.');
+
+  const names = await listPdfNames(sourceDir);
+  const plan = buildSortPlan(names);
+  const results = [];
+  let moved = 0;
+  let failed = 0;
+
+  for (const g of plan.groups) {
+    const folder = safeFolderName(g.folder);
+    const targetDir = path.join(destDir, folder, TTN_SUBDIR);
+    // eslint-disable-next-line no-await-in-loop
+    await fs.mkdir(targetDir, { recursive: true });
+    const used = new Set();
+    for (const it of g.items) {
+      // eslint-disable-next-line no-await-in-loop
+      const finalName = await uniqueName(targetDir, it.fileName, used);
+      const to = path.join(targetDir, finalName);
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await moveFile(path.join(sourceDir, it.fileName), to);
+        moved += 1;
+        results.push({ fileName: it.fileName, folder, finalName, ok: true });
+      } catch (err) {
+        failed += 1;
+        results.push({ fileName: it.fileName, folder, ok: false, error: String(err.message || err) });
+      }
+    }
+  }
+
+  // Problem files → неотсортированные inside the SOURCE folder.
+  let unsortedMoved = 0;
+  if (plan.unsorted.length) {
+    const unsortedDir = path.join(sourceDir, UNSORTED_DIR);
+    await fs.mkdir(unsortedDir, { recursive: true });
+    const used = new Set();
+    for (const u of plan.unsorted) {
+      // eslint-disable-next-line no-await-in-loop
+      const finalName = await uniqueName(unsortedDir, u.fileName, used);
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await moveFile(path.join(sourceDir, u.fileName), path.join(unsortedDir, finalName));
+        unsortedMoved += 1;
+        results.push({ fileName: u.fileName, folder: UNSORTED_DIR, finalName, ok: true });
+      } catch (err) {
+        failed += 1;
+        results.push({ fileName: u.fileName, folder: UNSORTED_DIR, ok: false, error: String(err.message || err) });
+      }
+    }
+  }
+
+  return { moved, failed, unsortedMoved, unsortedDir: path.join(sourceDir, UNSORTED_DIR), results };
 });
 
 // ---------------------------------------------------------------------------

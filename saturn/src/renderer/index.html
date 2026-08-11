@@ -123,6 +123,11 @@
           <span class="tile-title">Определитель листов согласования</span>
           <span class="tile-desc">Читает шапку и переименовывает: <code>Лист согласований к Договору № … от … Контрагент</code></span>
         </button>
+        <button class="tile" data-tool="sort">
+          <span class="tile-icon">🗂️</span>
+          <span class="tile-title">Сортировка накладных</span>
+          <span class="tile-desc">Раскладывает готовые <code>{накладная}_{договор}.pdf</code> по папкам договоров (в подпапку <code>ТТН</code>). Есть пробный прогон.</span>
+        </button>
       </div>
     </section>
 
@@ -247,6 +252,40 @@
         <div id="mergeCards" class="cards"></div>
         <div id="mergeCount" class="result-count hidden"></div>
       </section>
+    </section>
+
+    <!-- Сортировка накладных -->
+    <section id="sortView" class="hidden">
+      <div class="toolbar">
+        <button id="sortRestartBtn" class="ghost">↺ Сброс</button>
+        <div class="spacer"></div>
+        <button id="sortDryBtn" class="primary" disabled>🔎 Пробный прогон</button>
+        <button id="sortApplyBtn" class="primary" disabled>🗂️ Выполнить сортировку</button>
+      </div>
+
+      <div class="sort-pickers">
+        <div class="sort-pick">
+          <div class="sort-pick-head">
+            <span class="sort-pick-cap">Папка с накладными (источник)</span>
+            <button id="sortSrcBtn" class="ghost">Выбрать…</button>
+          </div>
+          <div id="sortSrcLabel" class="sort-path muted">не выбрана</div>
+        </div>
+        <div class="sort-pick">
+          <div class="sort-pick-head">
+            <span class="sort-pick-cap">Папка назначения (куда разложить)</span>
+            <button id="sortDestBtn" class="ghost">Выбрать…</button>
+          </div>
+          <div id="sortDestLabel" class="sort-path muted">не выбрана</div>
+        </div>
+      </div>
+
+      <p class="hint" id="sortHint">Файлы вида <code>{накладная}_{договор}.pdf</code> раскладываются по
+        папкам договоров: <code>{назначение}/{договор}/ТТН/</code>. Проблемные (договор или накладная = NA)
+        уходят в <code>{источник}/неотсортированные/</code>. Сначала сделайте пробный прогон — ничего не
+        двигается, показывается только план.</p>
+
+      <div id="sortReport" class="sort-report hidden"></div>
     </section>
 
     <!-- Settings modal -->

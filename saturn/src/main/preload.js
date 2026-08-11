@@ -36,6 +36,12 @@ contextBridge.exposeInMainWorld('api', {
   mergePages: (filePaths) => ipcRenderer.invoke('merge:pages', filePaths),
   mergeSave: (payload) => ipcRenderer.invoke('merge:save', payload),
 
+  // Сортировка накладных
+  sortPickSource: () => ipcRenderer.invoke('sort:pickSource'),
+  sortPickDest: () => ipcRenderer.invoke('sort:pickDest'),
+  sortPlan: (payload) => ipcRenderer.invoke('sort:plan', payload),
+  sortApply: (payload) => ipcRenderer.invoke('sort:apply', payload),
+
   // events (main -> renderer)
   on: (channel, cb) => {
     const allowed = [
