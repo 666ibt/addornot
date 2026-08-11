@@ -36,6 +36,10 @@ contextBridge.exposeInMainWorld('api', {
   mergePages: (filePaths) => ipcRenderer.invoke('merge:pages', filePaths),
   mergeSave: (payload) => ipcRenderer.invoke('merge:save', payload),
 
+  // Сжатие PDF
+  compressPick: () => ipcRenderer.invoke('compress:pick'),
+  compressRun: (payload) => ipcRenderer.invoke('compress:run', payload),
+
   // Сортировка накладных
   sortPickSource: () => ipcRenderer.invoke('sort:pickSource'),
   sortPickDest: () => ipcRenderer.invoke('sort:pickDest'),
@@ -49,6 +53,7 @@ contextBridge.exposeInMainWorld('api', {
       'process:page',
       'process:complete',
       'process:error',
+      'compress:progress',
     ];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_e, payload) => cb(payload);

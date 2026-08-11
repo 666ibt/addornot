@@ -128,6 +128,11 @@
           <span class="tile-title">Сортировка накладных</span>
           <span class="tile-desc">Раскладывает готовые <code>{накладная}_{договор}.pdf</code> по папкам договоров (в подпапку <code>ТТН</code>). Есть пробный прогон.</span>
         </button>
+        <button class="tile" data-tool="compress">
+          <span class="tile-icon">🗜️</span>
+          <span class="tile-title">Сжатие PDF</span>
+          <span class="tile-desc">Уменьшает размер PDF. Режим «Без потерь» или пережатие сканов (визуально без потерь). Отчёт: было → стало.</span>
+        </button>
       </div>
     </section>
 
@@ -251,6 +256,52 @@
         <p class="hint" style="margin:0 0 12px">Перетаскивайте карточки или пользуйтесь стрелками, чтобы задать порядок страниц.</p>
         <div id="mergeCards" class="cards"></div>
         <div id="mergeCount" class="result-count hidden"></div>
+      </section>
+    </section>
+
+    <!-- Сжатие PDF -->
+    <section id="compressView" class="hidden">
+      <section id="cmpDrop" class="dropzone">
+        <div class="dz-inner">
+          <div class="dz-icon">🗜️⬇️</div>
+          <p><b>Перетащите сюда PDF-файлы</b> или</p>
+          <button id="cmpPickBtn" class="primary">Выбрать PDF…</button>
+          <p class="hint">Файлы уменьшаются в размере; оригиналы не меняются — результат кладётся в папку вывода.</p>
+        </div>
+      </section>
+
+      <section id="cmpArea" class="hidden">
+        <div class="toolbar">
+          <button id="cmpRestartBtn" class="ghost">↺ Начать заново</button>
+          <button id="cmpAddBtn" class="ghost">＋ Добавить PDF…</button>
+          <div class="spacer"></div>
+          <button id="cmpPickOutBtn" class="ghost">Папка вывода…</button>
+          <button id="cmpRunBtn" class="primary" disabled>🗜️ Сжать</button>
+        </div>
+
+        <div class="outdir-row">
+          <span class="outdir-label-caption">Папка вывода:</span>
+          <span id="cmpOutDirLabel" class="muted">не выбрана</span>
+        </div>
+
+        <div class="cmp-modes">
+          <span class="cmp-modes-cap">Режим сжатия:</span>
+          <div class="seg" id="cmpModes">
+            <button class="seg-btn" data-preset="lossless">Без потерь</button>
+            <button class="seg-btn active" data-preset="high">Высокое качество</button>
+            <button class="seg-btn" data-preset="medium">Среднее</button>
+            <button class="seg-btn" data-preset="strong">Сильное</button>
+          </div>
+        </div>
+        <p class="hint" id="cmpModeHint"></p>
+
+        <div id="cmpProgress" class="progress hidden">
+          <div class="bar"><div id="cmpProgressBar" class="fill"></div></div>
+          <span id="cmpProgressText" class="muted"></span>
+        </div>
+
+        <div id="cmpList" class="stage-list"></div>
+        <div id="cmpReport" class="sort-report hidden"></div>
       </section>
     </section>
 

@@ -37,7 +37,7 @@ jobs:
         run: npm install
 
       - name: Run unit tests
-        run: node --test test/extract.test.js test/approval.test.js test/sort.test.js test/exif.test.js
+        run: node --test test/extract.test.js test/approval.test.js test/sort.test.js test/exif.test.js test/compress.test.js
 
       - name: Build Windows installer
         run: npm run dist:win
@@ -54,14 +54,30 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.9.1
-          name: Saturn v1.9.1
+          tag_name: v1.10.0
+          name: Saturn v1.10.0
           target_commitish: ${{ github.sha }}
           files: saturn/release/*.exe
           body: |
             Готовое приложение для Windows. Node.js и терминал не требуются.
             Словари распознавания (рус+англ) встроены — работает офлайн,
             интернет не нужен.
+
+            **Saturn 1.10.0 — новый инструмент «Сжатие PDF»:**
+            - Уменьшает размер PDF-файлов. Выберите файлы и папку вывода —
+              оригиналы не меняются, результат кладётся отдельно.
+            - Режимы на выбор:
+              • «Без потерь» — только пересжатие потоков и очистка, изображения
+                и текст не трогаются (качество 100%, выигрыш небольшой);
+              • «Высокое качество» (рекомендуется), «Среднее», «Сильное» —
+                пережатие сканов с понижением избыточного DPI и JPEG-качества;
+                «Высокое» визуально неотличимо от оригинала, но заметно легче.
+            - Гарантия размера: если «сжатый» файл получился не меньше
+              исходного, сохраняется оригинал — файл никогда не становится
+              больше.
+            - Отчёт прямо в приложении: было → стало и процент экономии по
+              каждому файлу и суммарно; файлы «уже оптимально» и ошибки видны
+              отдельно.
 
             **Saturn 1.9.1 — «Фото → PDF»: авто-поворот по EXIF:**
             - Фотографии с телефона больше не ложатся боком. Приложение читает

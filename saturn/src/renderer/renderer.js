@@ -63,6 +63,7 @@ const TOOLS = {
   img: { title: 'Фото → PDF', hint: '' },
   merge: { title: 'Объединить PDF', hint: '' },
   sort: { title: 'Сортировка накладных', hint: '' },
+  compress: { title: 'Сжатие PDF', hint: '' },
 };
 
 const state = {
@@ -130,6 +131,7 @@ function showHome() {
   $('imgView').classList.add('hidden');
   $('mergeView').classList.add('hidden');
   $('sortView').classList.add('hidden');
+  $('compressView').classList.add('hidden');
   $('homeBtn').classList.add('hidden');
   $('subTitle').textContent = 'Набор инструментов для документов';
 }
@@ -161,8 +163,19 @@ function openTool(tool) {
     $('pdfView').classList.add('hidden');
     $('imgView').classList.add('hidden');
     $('mergeView').classList.add('hidden');
+    $('compressView').classList.add('hidden');
     $('sortView').classList.remove('hidden');
     sortReset();
+    return;
+  }
+  if (tool === 'compress') {
+    state.view = 'compress';
+    $('pdfView').classList.add('hidden');
+    $('imgView').classList.add('hidden');
+    $('mergeView').classList.add('hidden');
+    $('sortView').classList.add('hidden');
+    $('compressView').classList.remove('hidden');
+    cmpReset();
     return;
   }
   // pdf tools
@@ -171,6 +184,7 @@ function openTool(tool) {
   $('imgView').classList.add('hidden');
   $('mergeView').classList.add('hidden');
   $('sortView').classList.add('hidden');
+  $('compressView').classList.add('hidden');
   $('pdfView').classList.remove('hidden');
   $('dzHint').textContent = TOOLS[tool].hint;
   resetPdf();
@@ -307,6 +321,12 @@ function registerEvents() {
     renderCard(p.pageId);
     updateProgress();
     updateResultCount();
+  });
+  api.on('compress:progress', (p) => {
+    const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
+    $('cmpProgressBar').style.width = `${pct}%`;
+    const pageInfo = p.page ? ` (стр. ${p.page}/${p.pageTotal})` : '';
+    $('cmpProgressText').textContent = `Сжатие ${p.done + 1} из ${p.total}: ${p.fileName}${pageInfo}`;
   });
   api.on('process:complete', (p) => {
     if (p.jobId !== state.jobId) return;
@@ -958,6 +978,141 @@ async function mergeSaveOne(i, card) {
   }
 }
 
+// --- Сжатие PDF ------------------------------------------------------------
+const cmpState = { files: [], preset: 'high', busy: false };
+
+const CMP_HINTS = {
+  lossless: 'Без потерь: только пересжатие потоков и очистка. Изображения и текст не трогаются — качество 100%, выигрыш обычно небольшой.',
+  high: 'Высокое качество: сканы пережимаются с высоким качеством (≈200 DPI). Визуально без потерь, заметно меньше размер. Рекомендуется.',
+  medium: 'Среднее: ≈150 DPI. Ещё меньше размер, для просмотра качество достаточное.',
+  strong: 'Сильное: ≈120 DPI. Минимальный размер; для архивов и пересылки, при близком рассмотрении возможна мягкость.',
+};
+
+function formatBytes(n) {
+  if (!n) return '0 Б';
+  const mb = n / (1024 * 1024);
+  if (mb >= 1) return `${mb.toFixed(1)} МБ`;
+  return `${Math.max(1, Math.round(n / 1024))} КБ`;
+}
+
+function cmpReset() {
+  hideProcLoader();
+  cmpState.files = [];
+  cmpState.busy = false;
+  $('cmpList').innerHTML = '';
+  $('cmpReport').classList.add('hidden');
+  $('cmpReport').innerHTML = '';
+  $('cmpProgress').classList.add('hidden');
+  $('cmpArea').classList.add('hidden');
+  $('cmpDrop').classList.remove('hidden');
+  cmpSetPreset(cmpState.preset);
+  cmpUpdateButtons();
+}
+
+function cmpAdd(paths) {
+  const added = (paths || []).filter((p) => p && !cmpState.files.includes(p));
+  if (!added.length && !cmpState.files.length) return;
+  cmpState.files.push(...added);
+  $('cmpDrop').classList.add('hidden');
+  $('cmpArea').classList.remove('hidden');
+  $('cmpReport').classList.add('hidden'); // a new selection invalidates the old report
+  renderCmpList();
+  cmpUpdateButtons();
+}
+
+function renderCmpList() {
+  const n = cmpState.files.length;
+  const list = $('cmpList');
+  list.innerHTML = '';
+  cmpState.files.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'stage-file';
+    row.innerHTML = `
+      <span class="doc-icon">📄</span>
+      <span class="fname-txt">${escapeHtml(baseName(p))}</span>
+      <button class="del-one" data-i="${i}" title="Убрать из списка">🗑</button>`;
+    row.querySelector('[data-i]').addEventListener('click', () => {
+      cmpState.files.splice(i, 1);
+      if (!cmpState.files.length) return cmpReset();
+      renderCmpList();
+      cmpUpdateButtons();
+    });
+    list.appendChild(row);
+  });
+}
+
+function cmpSetPreset(preset) {
+  cmpState.preset = preset;
+  document.querySelectorAll('#cmpModes .seg-btn').forEach((b) =>
+    b.classList.toggle('active', b.dataset.preset === preset));
+  $('cmpModeHint').textContent = CMP_HINTS[preset] || '';
+}
+
+function cmpUpdateButtons() {
+  $('cmpRunBtn').disabled = cmpState.busy || cmpState.files.length === 0 || !state.outputDir;
+}
+
+async function cmpPick() {
+  const files = await api.compressPick();
+  if (files.length) cmpAdd(files);
+}
+
+async function cmpRun() {
+  if (!state.outputDir) return toast('Сначала выберите папку вывода.', 'err');
+  if (!cmpState.files.length) return;
+  cmpState.busy = true;
+  cmpUpdateButtons();
+  showProcLoader();
+  $('cmpProgress').classList.remove('hidden');
+  $('cmpProgressBar').style.width = '0%';
+  $('cmpProgressText').textContent = 'Подготовка…';
+  try {
+    const res = await api.compressRun({
+      filePaths: cmpState.files, preset: cmpState.preset, outputDir: state.outputDir,
+    });
+    renderCmpReport(res);
+    const ok = res.results.filter((r) => r.ok).length;
+    const fail = res.results.length - ok;
+    toast(`Готово. Сжато ${ok} файлов${fail ? `, ошибок: ${fail}` : ''}. Экономия: ${res.savingsTotal}%.`, fail ? 'err' : 'ok');
+    api.openPath(res.outputDir);
+  } catch (err) {
+    toast(`Ошибка сжатия: ${err.message || err}`, 'err');
+  } finally {
+    cmpState.busy = false;
+    hideProcLoader();
+    $('cmpProgress').classList.add('hidden');
+    cmpUpdateButtons();
+  }
+}
+
+function renderCmpReport(res) {
+  const wrap = $('cmpReport');
+  const rows = res.results.map((r) => {
+    if (!r.ok) {
+      return `<div class="sort-file failed"><span class="sort-file-status">✗</span>
+        <span class="sort-file-name">${escapeHtml(r.fileName)}</span>
+        <span class="sort-file-reason">${escapeHtml(r.error || 'ошибка')}</span></div>`;
+    }
+    const unchanged = r.kept === 'original';
+    const note = unchanged
+      ? '<span class="sort-file-reason">без изменений (уже оптимально)</span>'
+      : `<span class="cmp-sizes">${formatBytes(r.originalSize)} → <b>${formatBytes(r.newSize)}</b></span>
+         <span class="cmp-save">−${r.savings}%</span>`;
+    return `<div class="sort-file moved"><span class="sort-file-status">✓</span>
+      <span class="sort-file-name">${escapeHtml(r.name)}</span>${note}</div>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div class="sort-stats">
+      <div class="sort-stat"><div class="sort-stat-n">${res.results.length}</div><div class="sort-stat-l">файлов</div></div>
+      <div class="sort-stat"><div class="sort-stat-n">${formatBytes(res.originalTotal)}</div><div class="sort-stat-l">было</div></div>
+      <div class="sort-stat good"><div class="sort-stat-n">${formatBytes(res.newTotal)}</div><div class="sort-stat-l">стало</div></div>
+      <div class="sort-stat good"><div class="sort-stat-n">−${res.savingsTotal}%</div><div class="sort-stat-l">экономия</div></div>
+    </div>
+    <div class="sort-group"><div class="sort-group-files">${rows}</div></div>`;
+  wrap.classList.remove('hidden');
+}
+
 // --- Сортировка накладных --------------------------------------------------
 const sortState = { source: '', dest: '', report: null, busy: false };
 
@@ -1154,13 +1309,14 @@ async function saveSettings() {
 // --- output folder (shared) ------------------------------------------------
 function setOutputDir(dir) {
   state.outputDir = dir;
-  for (const id of ['outDirLabel', 'imgOutDirLabel', 'mergeOutDirLabel']) {
+  for (const id of ['outDirLabel', 'imgOutDirLabel', 'mergeOutDirLabel', 'cmpOutDirLabel']) {
     const el = $(id);
     if (el) { el.textContent = dir; el.classList.remove('muted'); }
   }
   updateSaveButton();
   updateImgSaveButton();
   updateMergeSaveButton();
+  cmpUpdateButtons();
 }
 async function pickOutput() {
   const dir = await api.pickOutputDir();
@@ -1176,7 +1332,7 @@ async function pickFiles() {
 function wireDropzone() {
   const marks = ['dragenter', 'dragover'];
   const clears = ['dragleave', 'drop'];
-  for (const dz of [$('dropzone'), $('imgDrop'), $('mergeDrop')]) {
+  for (const dz of [$('dropzone'), $('imgDrop'), $('mergeDrop'), $('cmpDrop')]) {
     marks.forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('drag'); }));
     clears.forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('drag'); }));
   }
@@ -1191,6 +1347,9 @@ function wireDropzone() {
     } else if (state.view === 'merge') {
       const paths = files.filter((f) => f.name.toLowerCase().endsWith('.pdf')).map((f) => f.path).filter(Boolean);
       if (paths.length) mergeAddPaths(paths);
+    } else if (state.view === 'compress') {
+      const paths = files.filter((f) => f.name.toLowerCase().endsWith('.pdf')).map((f) => f.path).filter(Boolean);
+      if (paths.length) cmpAdd(paths);
     } else if (state.view === 'pdf' && !state.processing && state.pages.size === 0) {
       // Collect dropped PDFs into the staging list (don't start yet); ignore
       // drops while a batch is running or results are already on screen.
@@ -1239,6 +1398,15 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('mergeRestartBtn').addEventListener('click', mergeReset);
   $('mergePickOutBtn').addEventListener('click', pickOutput);
   $('mergeSaveBtn').addEventListener('click', mergeSave);
+
+  // Сжатие PDF
+  $('cmpPickBtn').addEventListener('click', cmpPick);
+  $('cmpAddBtn').addEventListener('click', cmpPick);
+  $('cmpRestartBtn').addEventListener('click', cmpReset);
+  $('cmpPickOutBtn').addEventListener('click', pickOutput);
+  $('cmpRunBtn').addEventListener('click', cmpRun);
+  document.querySelectorAll('#cmpModes .seg-btn').forEach((b) =>
+    b.addEventListener('click', () => cmpSetPreset(b.dataset.preset)));
 
   // Сортировка накладных
   $('sortSrcBtn').addEventListener('click', sortPickSource);

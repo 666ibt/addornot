@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs/promises');
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 
-const { renderSinglePage, pageCount, splitPage, imageToPdf, imagesToPdf, mergePages, clearDocCache } = require('./pdf');
+const { renderSinglePage, pageCount, splitPage, imageToPdf, imagesToPdf, mergePages, compressPdf, clearDocCache } = require('./pdf');
 const {
   ocrImage, ocrPlain, cropTop, rotateBuffer, jimpToPdfRotation, workerCount,
   terminate: terminateOcr,
@@ -13,6 +13,7 @@ const { extractWithClaude } = require('./ai');
 const { extract, makeFilename, sanitizeForFilename } = require('./extract');
 const { parseApproval } = require('./extract-approval');
 const { buildSortPlan } = require('./sort');
+const { presetOpts, savingsPercent } = require('./compress');
 const { readJpegOrientation, orientationPlan } = require('./exif');
 const { getSettings, setSettings } = require('./settings');
 
@@ -536,6 +537,63 @@ ipcMain.handle('img:save', async (_e, { images, mode, outputDir, combinedName })
   }
   setSettings({ lastOutputDir: outputDir });
   return { outputDir, results };
+});
+
+// ---------------------------------------------------------------------------
+// IPC: Сжатие PDF
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('compress:pick', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Выберите PDF-файлы для сжатия',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  });
+  return res.canceled ? [] : res.filePaths;
+});
+
+// Compress each chosen PDF into `outputDir`, keeping the original filename
+// (deduped so nothing is overwritten). Progress is streamed per file.
+ipcMain.handle('compress:run', async (_e, { filePaths, preset, outputDir }) => {
+  if (!outputDir) throw new Error('Не выбрана папка для сохранения.');
+  if (!filePaths || !filePaths.length) throw new Error('Нет файлов для сжатия.');
+  const opts = presetOpts(preset);
+  const used = new Set();
+  const results = [];
+  let done = 0;
+
+  for (const filePath of filePaths) {
+    const fileName = path.basename(filePath);
+    send('compress:progress', { fileName, done, total: filePaths.length });
+    // eslint-disable-next-line no-await-in-loop
+    const name = await uniqueName(outputDir, fileName, used);
+    const outPath = path.join(outputDir, name);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await compressPdf(filePath, outPath, opts, (page, total) =>
+        send('compress:progress', { fileName, done, total: filePaths.length, page, pageTotal: total }));
+      results.push({
+        fileName, name, ok: true,
+        originalSize: r.originalSize, newSize: r.newSize,
+        savings: savingsPercent(r.originalSize, r.newSize),
+        kept: r.kept, pages: r.pages,
+      });
+    } catch (err) {
+      results.push({ fileName, name, ok: false, error: String(err.message || err) });
+    }
+    done += 1;
+    clearDocCache(); // free the source doc between files so memory stays flat
+  }
+
+  const okResults = results.filter((r) => r.ok);
+  const originalTotal = okResults.reduce((n, r) => n + r.originalSize, 0);
+  const newTotal = okResults.reduce((n, r) => n + r.newSize, 0);
+  setSettings({ lastOutputDir: outputDir });
+  return {
+    outputDir, results,
+    originalTotal, newTotal,
+    savingsTotal: savingsPercent(originalTotal, newTotal),
+  };
 });
 
 // ---------------------------------------------------------------------------

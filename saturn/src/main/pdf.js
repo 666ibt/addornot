@@ -4,6 +4,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const { PDFDocument, degrees } = require('pdf-lib');
 const { readJpegOrientation, orientationPlan } = require('./exif');
+const { keepSmaller } = require('./compress');
 
 /**
  * PDF helpers:
@@ -200,6 +201,74 @@ async function imagesToPdf(imagePaths, outPath) {
   return outPath;
 }
 
+// ---------------------------------------------------------------------------
+// PDF compression
+// ---------------------------------------------------------------------------
+
+/**
+ * Compress one PDF into `outPath`.
+ *
+ * `lossless` mode just re-saves through pdf-lib (deflate + object streams +
+ * dropping unused objects) — pixels and text untouched.
+ *
+ * `image` mode re-renders each page at a capped DPI and re-encodes it as JPEG
+ * at the given quality, then rebuilds the PDF. The original page size (in
+ * points) is recovered from the rendered pixel size and the render scale
+ * (scale = pixels per point), so the physical page dimensions are preserved.
+ *
+ * In BOTH modes, if the result isn't actually smaller than the source, the
+ * original bytes are written instead — the output never grows.
+ *
+ * @param {string} filePath
+ * @param {string} outPath
+ * @param {{mode:'lossless'|'image', dpi?:number, quality?:number, maxEdge?:number}} opts
+ * @param {(page:number,total:number)=>void} [onProgress]
+ * @returns {Promise<{pages:number, originalSize:number, newSize:number, kept:'compressed'|'original'}>}
+ */
+async function compressPdf(filePath, outPath, opts = {}, onProgress) {
+  const srcBytes = await fs.readFile(filePath);
+  let producedBytes;
+  let pages;
+
+  if (opts.mode === 'lossless') {
+    const src = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
+    pages = src.getPageCount();
+    producedBytes = Buffer.from(await src.save({ useObjectStreams: true }));
+  } else {
+    const { dpi = 200, quality = 85, maxEdge = 2600 } = opts;
+    const Jimp = require('jimp');
+    const scale = dpi / 72;
+    const doc = await openDoc(filePath);
+    pages = doc.countPages();
+    const out = await PDFDocument.create();
+    for (let i = 0; i < pages; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      const png = await renderSinglePage(filePath, i, scale);
+      // eslint-disable-next-line no-await-in-loop
+      const img = await Jimp.read(png);
+      const wPt = img.bitmap.width / scale;   // original page size in points…
+      const hPt = img.bitmap.height / scale;  // …recovered before any resize
+      if (Math.max(img.bitmap.width, img.bitmap.height) > maxEdge) {
+        img.scaleToFit(maxEdge, maxEdge);
+      }
+      // eslint-disable-next-line no-await-in-loop
+      const jpg = await img.quality(quality).getBufferAsync(Jimp.MIME_JPEG);
+      // eslint-disable-next-line no-await-in-loop
+      const embedded = await out.embedJpg(jpg);
+      const page = out.addPage([wPt, hPt]);
+      page.drawImage(embedded, { x: 0, y: 0, width: wPt, height: hPt });
+      if (onProgress) onProgress(i + 1, pages);
+    }
+    producedBytes = Buffer.from(await out.save());
+  }
+
+  const keep = keepSmaller(srcBytes.length, producedBytes.length);
+  const finalBytes = keep === 'compressed' ? producedBytes : srcBytes;
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+  await fs.writeFile(outPath, finalBytes);
+  return { pages, originalSize: srcBytes.length, newSize: finalBytes.length, kept: keep };
+}
+
 /**
  * Merge an ordered list of pages (each from any source PDF) into one file.
  * @param {{filePath: string, pageIndex: number}[]} pages  in output order
@@ -226,5 +295,5 @@ async function mergePages(pages, outPath) {
 
 module.exports = {
   renderSinglePage, pageCount, splitPage,
-  imageToPdf, imagesToPdf, mergePages, clearDocCache,
+  imageToPdf, imagesToPdf, mergePages, compressPdf, clearDocCache,
 };
