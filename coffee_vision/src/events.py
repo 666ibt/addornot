@@ -1,9 +1,11 @@
 """SQLite event store.
 
-Two event kinds land in one table:
-  * ``object`` — a product was seen (deduplicated per track id so we don't write
-    one row per frame).
-  * ``action`` — the barista's recognized action changed.
+Event kinds in one table:
+  * ``object``   — an object was first seen (one row per track id).
+  * ``activity`` — a worker's committed activity changed (with the duration of
+    the activity that just ended, and their track id).
+  * ``alert``    — a derived alert, e.g. ``phone_on_workplace`` (worker on their
+    phone longer than the threshold), with the phone-use duration.
 
 Schema is created on first use; no migrations, no external DB.
 """
@@ -21,10 +23,12 @@ CREATE TABLE IF NOT EXISTS events (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     ts          REAL    NOT NULL,   -- wall-clock unix time the row was written
     video_ts    REAL,               -- seconds into the video/stream
-    event_type  TEXT    NOT NULL,   -- 'object' | 'action'
+    event_type  TEXT    NOT NULL,   -- 'object' | 'activity' | 'alert'
     label       TEXT    NOT NULL,
+    track_id    INTEGER,            -- worker/object track id when applicable
     confidence  REAL,
-    zone        TEXT,
+    duration    REAL,               -- seconds (activity length / phone-use length)
+    detail      TEXT,
     session_id  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
@@ -35,8 +39,10 @@ CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
 class Event:
     event_type: str
     label: str
+    track_id: Optional[int] = None
     confidence: Optional[float] = None
-    zone: Optional[str] = None
+    duration: Optional[float] = None
+    detail: Optional[str] = None
     video_ts: Optional[float] = None
     ts: float = 0.0
     id: Optional[int] = None
@@ -50,37 +56,43 @@ class EventStore:
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """Add any columns missing from an older events.db (no-op if current)."""
+        have = {r["name"] for r in self.conn.execute("PRAGMA table_info(events)")}
+        for col, decl in [("track_id", "INTEGER"), ("duration", "REAL"),
+                          ("detail", "TEXT"), ("video_ts", "REAL"),
+                          ("confidence", "REAL")]:
+            if col not in have:
+                self.conn.execute(f"ALTER TABLE events ADD COLUMN {col} {decl}")
 
     def log(self, event: Event) -> int:
         ts = event.ts or time.time()
         cur = self.conn.execute(
-            """INSERT INTO events (ts, video_ts, event_type, label, confidence, zone, session_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO events
+               (ts, video_ts, event_type, label, track_id, confidence, duration, detail, session_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                ts,
-                event.video_ts,
-                event.event_type,
-                event.label,
-                event.confidence,
-                event.zone,
-                self.session_id,
+                ts, event.video_ts, event.event_type, event.label, event.track_id,
+                event.confidence, event.duration, event.detail, self.session_id,
             ),
         )
         self.conn.commit()
         return int(cur.lastrowid)
 
-    def recent(self, limit: int = 50, session_only: bool = True) -> List[sqlite3.Row]:
+    def recent(self, limit: int = 50, session_only: bool = True,
+               event_types: Optional[List[str]] = None) -> List[sqlite3.Row]:
+        q = "SELECT * FROM events WHERE 1=1"
+        args: list = []
         if session_only:
-            rows = self.conn.execute(
-                "SELECT * FROM events WHERE session_id=? ORDER BY id DESC LIMIT ?",
-                (self.session_id, limit),
-            ).fetchall()
-        else:
-            rows = self.conn.execute(
-                "SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,)
-            ).fetchall()
-        return rows
+            q += " AND session_id=?"; args.append(self.session_id)
+        if event_types:
+            q += f" AND event_type IN ({','.join('?' * len(event_types))})"
+            args += event_types
+        q += " ORDER BY id DESC LIMIT ?"; args.append(limit)
+        return self.conn.execute(q, args).fetchall()
 
     def counts(self, event_type: str, session_only: bool = True):
         """Return [(label, n), ...] for the given event_type."""

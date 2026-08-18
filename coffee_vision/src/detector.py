@@ -1,56 +1,63 @@
-"""Open-vocabulary product detection with YOLO-World + built-in ByteTrack.
+"""Object detection for worker-activity recognition.
 
-Primary path — **YOLO-World** (`yolov8s-worldv2`): classes are set from *text
-prompts* with no fine-tuning on our own data, and objects are tracked across
-frames with the built-in **ByteTrack**. To adapt to a different menu, just edit
-``DEFAULT_PROMPTS`` (or the Streamlit sidebar); the model re-embeds the words.
+Primary path — **YOLO-World** (`yolov8s-worldv2`): open-vocabulary, classes set
+from text prompts (no fine-tuning) + built-in **ByteTrack**.
 
-Offline-fallback path — **COCO YOLOv8** (`yolov8s.pt`): YOLO-World needs the
-CLIP text encoder (ViT-B/32) to embed the prompts the first time, and that file
-is hosted on a CDN some locked-down networks block (this build environment was
-one). When the CLIP weights can't be fetched, the detector transparently falls
-back to a standard COCO-pretrained YOLOv8 and *remaps the overlapping COCO
-classes to the coffee vocabulary* (cup -> "coffee cup", bottle -> "milk carton",
-person -> "person", …) so the pipeline still produces real object detections.
-COCO has no "espresso machine"/"portafilter" class, so those simply aren't
-detected in fallback mode. Check ``detector.mode`` to see which path is active.
-
-On a machine with normal internet, YOLO-World is used automatically — nothing to
-configure.
+Offline-fallback path — **COCO YOLOv8** (`yolov8s.pt`): YOLO-World needs the CLIP
+text encoder the first time `set_classes()` runs, and that CDN is blocked on some
+networks (including the build environment for this MVP). When it can't be
+fetched, the detector falls back to COCO YOLOv8. The activity we care about keys
+off objects that are **native COCO classes** — `person`, `cell phone`, `cup`,
+`bottle`, `bowl`, `sandwich`, `cake`, `fork/knife`, `laptop`, … — so phone/food/
+drink detection still works in fallback; we just keep a whitelist instead of
+remapping. Check `detector.mode` (`"yolo-world"` vs `"coco-fallback"`).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 import numpy as np
 
-# Product / object classes for the coffee-shop demo, as plain-English prompts.
-DEFAULT_PROMPTS: List[str] = [
+# Open-vocabulary vocabulary (YOLO-World prompts). Ordering doesn't matter.
+ACTIVITY_PROMPTS: List[str] = [
+    "person",
+    "cell phone",
     "coffee cup",
     "paper cup",
-    "milk carton",
+    "drinking cup",
     "milk pitcher",
-    "syrup bottle",
-    "portafilter",
-    "espresso machine",
-    "person",
-    "coffee beans bag",
+    "bottle",
+    "food",
+    "sandwich",
+    "snack",
+    "laptop",
+    "tablet",
 ]
 
-# COCO class name -> nearest coffee-vocabulary label, used ONLY in the offline
-# COCO fallback. COCO classes not listed here are dropped so the event stream
-# stays coffee-relevant. Approximate by construction (see module docstring).
-COCO_TO_COFFEE: Dict[str, str] = {
-    "person": "person",
-    "cup": "coffee cup",
-    "bottle": "milk carton",
-    "wine glass": "milk pitcher",
-    "vase": "milk pitcher",
-    "bowl": "milk pitcher",
-    "handbag": "coffee beans bag",
-    "backpack": "coffee beans bag",
+# COCO class names we surface in fallback mode (everything else is dropped).
+# These are the objects the activity rules reason about.
+COCO_KEEP: Set[str] = {
+    "person",
+    "cell phone",
+    "cup",
+    "wine glass",
+    "bottle",
+    "bowl",
+    "sandwich",
+    "donut",
+    "cake",
+    "pizza",
+    "hot dog",
+    "banana",
+    "apple",
+    "orange",
+    "fork",
+    "knife",
+    "spoon",
+    "laptop",
+    "book",
 }
 
 
@@ -66,43 +73,44 @@ class Detection:
         x1, y1, x2, y2 = self.box
         return (x1 + x2) / 2.0, (y1 + y2) / 2.0
 
+    @property
+    def area(self) -> float:
+        x1, y1, x2, y2 = self.box
+        return max(x2 - x1, 0) * max(y2 - y1, 0)
+
 
 class ProductDetector:
-    """YOLO-World detector with ByteTrack, falling back to COCO YOLOv8 offline.
-
-    The heavy ``ultralytics`` import happens lazily inside ``__init__``.
-    """
+    """YOLO-World detector with ByteTrack, falling back to COCO YOLOv8 offline."""
 
     def __init__(
         self,
         prompts: Optional[List[str]] = None,
         weights: str = "yolov8s-worldv2.pt",
         fallback_weights: str = "yolov8s.pt",
-        conf: float = 0.05,
+        conf: float = 0.25,
         device: Optional[str] = None,
         allow_fallback: bool = True,
+        coco_keep: Optional[Set[str]] = None,
     ) -> None:
         from ultralytics import YOLO  # lazy: pulls in torch
 
-        self.prompts = list(prompts) if prompts else list(DEFAULT_PROMPTS)
+        self.prompts = list(prompts) if prompts else list(ACTIVITY_PROMPTS)
         self.conf = conf
         self.device = device
         self.mode = "yolo-world"
-        self._coco_names: Dict[int, str] = {}
+        self.coco_keep = set(coco_keep) if coco_keep is not None else set(COCO_KEEP)
+        self._coco_names: dict = {}
 
         try:
-            # yolov8s-worldv2 auto-downloads on first use.
             self.model = YOLO(weights)
-            # set_classes() embeds the prompts via CLIP — this is what needs the
-            # (sometimes blocked) CLIP text-encoder download.
-            self.model.set_classes(self.prompts)
+            self.model.set_classes(self.prompts)  # needs CLIP text encoder
         except Exception as exc:  # noqa: BLE001 — any failure -> try fallback
             if not allow_fallback:
                 raise
             print(
                 f"[detector] YOLO-World unavailable ({type(exc).__name__}: {exc}); "
-                f"falling back to COCO '{fallback_weights}' with class remapping. "
-                f"Object detection will be limited to COCO classes."
+                f"falling back to COCO '{fallback_weights}'. Detecting the COCO "
+                f"subset relevant to worker activity ({len(self.coco_keep)} classes)."
             )
             self.model = YOLO(fallback_weights)
             self._coco_names = dict(self.model.names)
@@ -118,9 +126,8 @@ class ProductDetector:
     def _label_for_class(self, k: int) -> Optional[str]:
         if self.mode == "yolo-world":
             return self.prompts[k] if 0 <= k < len(self.prompts) else str(k)
-        # COCO fallback: remap, dropping classes with no coffee equivalent.
         coco = self._coco_names.get(k)
-        return COCO_TO_COFFEE.get(coco) if coco else None
+        return coco if (coco in self.coco_keep) else None
 
     def _parse(self, result) -> List[Detection]:
         dets: List[Detection] = []
@@ -137,7 +144,7 @@ class ProductDetector:
         )
         for (x1, y1, x2, y2), c, k, tid in zip(xyxy, confs, clss, ids):
             label = self._label_for_class(int(k))
-            if label is None:  # dropped COCO class
+            if label is None:
                 continue
             dets.append(
                 Detection(
@@ -150,17 +157,13 @@ class ProductDetector:
         return dets
 
     def detect(self, frame: np.ndarray) -> List[Detection]:
-        """One-shot detection (no tracking IDs)."""
         results = self.model.predict(
             frame, conf=self.conf, verbose=False, device=self.device
         )
         return self._parse(results[0])
 
     def track(self, frame: np.ndarray) -> List[Detection]:
-        """Detection + ByteTrack, giving each object a stable ``track_id``.
-
-        ``persist=True`` keeps tracker state across consecutive frames.
-        """
+        """Detection + ByteTrack (stable ``track_id`` across frames)."""
         results = self.model.track(
             frame,
             conf=self.conf,

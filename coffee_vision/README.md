@@ -1,234 +1,159 @@
-# Coffee Vision MVP ☕
+# Coffee Vision — Worker Activity Monitor ☕👁️
 
-A **working end-to-end** computer-vision demo for a coffee shop: it detects
-products and recognizes the barista's actions from a camera or video file, shows
-a live annotated view, logs events to SQLite, and displays running counters —
-all in a single Streamlit app.
+A desktop CV demo that watches a coffee-shop camera and reports **what each
+worker is doing** — and flags anyone **on their phone longer than a threshold**
+(default 45 s) while on shift. Single Streamlit app, SQLite event log, no
+training required to run today.
 
-It is deliberately a **desktop demo, not production**: no Docker/Kafka/Postgres,
-no cloud, no model training required to run today.
+## What it detects
 
-## What it does
+For every tracked **worker** (person), each frame:
 
-- **Product detection** — open-vocabulary [YOLO-World](https://docs.ultralytics.com/models/yolo-world/)
-  (`yolov8s-worldv2`). Classes are set from **text prompts**, so there is *no
-  fine-tuning on your own data*. Objects are tracked across frames with the
-  built-in **ByteTrack**. (If the CLIP text-encoder can't be downloaded — see
-  *Offline / restricted networks* below — the detector transparently falls back
-  to a COCO-pretrained YOLOv8 so the demo still runs.)
-- **Barista actions** — **no temporal model trained from scratch** (we have no
-  labeled data). Instead: **MediaPipe Pose** for wrist/body keypoints + a
-  **rule-based state machine** over three signals:
-  1. which **zone** of the frame the hand is in (drawn once during calibration),
-  2. which **object** the detector sees near the hand,
-  3. the **hand motion** over the last ~1 s (variance of the wrist position —
-     no neural net).
+| Activity | Fired when… |
+|---|---|
+| `using_phone` | a phone is detected near the worker |
+| `eating` | a food item (sandwich/cake/donut/…) is near the worker |
+| `making_drink` | a cup/bottle is near the worker **and they're moving** |
+| `working` | moving, no specific object |
+| `idle` | present, still, nothing in hand |
 
-  Recognized actions: `grinding_tamping`, `espresso_extraction`,
-  `milk_steaming`, `milk_pouring`, `idle`.
-- **Events** — each new object (per track) and each action change is written to
-  **SQLite** (`events.db`): `ts, video_ts, event_type, label, confidence, zone`.
-- **UI** — one **Streamlit** app: choose source (upload / sample / webcam), live
-  overlay (boxes + pose + zones + current action), event table, per-label
-  counters.
+Plus a derived **alert**:
 
-## Install
+- **`phone_on_workplace`** — fired **once** when a worker's *continuous* phone
+  use crosses the threshold (default 45 s). Each worker has an independent timer.
 
-Requires **Python 3.11+**.
+Everything is object-driven (phone / food / cup near each worker) — **no pose
+skeleton, no manual zone calibration**. Workers are tracked with ByteTrack so
+each keeps a stable id and its own timers.
+
+## How it works
+
+```
+frame ─► detector (YOLO-World / COCO) ─► split person vs objects
+      ─► ActivityRecognizer (per-worker state machine) ─► overlay + SQLite events
+```
+
+- **Detection** — open-vocabulary **YOLO-World** (`yolov8s-worldv2`), classes from
+  text prompts, + built-in **ByteTrack**. Falls back to **COCO YOLOv8** when the
+  CLIP text-encoder can't be downloaded (see *Offline* below); the objects that
+  matter — `person`, `cell phone`, `cup`, `bottle`, food items, `laptop` — are
+  native COCO classes, so activity detection still works offline.
+- **Activity** — `src/activity.py`: associates each object with the nearest
+  worker, applies the rules above with debouncing, and runs per-worker phone
+  timers. Transparent and swappable (see *Extending*).
+
+## Install & run
+
+Python 3.11+.
 
 ```bash
 cd coffee_vision
-python -m venv .venv && source .venv/bin/activate   # optional but recommended
+python -m venv .venv && source .venv/bin/activate     # optional
 pip install -r requirements.txt
-```
-
-On first run the detector auto-downloads `yolov8s-worldv2.pt` (~25 MB) from the
-Ultralytics GitHub release.
-
-## Run
-
-```bash
 streamlit run app.py
 ```
 
-Then in the sidebar: pick a **Video source**, adjust prompts/confidence if you
-like, and press **▶ Start**. You'll see the annotated video, the event table
-filling up, and the counters updating.
+Sidebar: pick a source (upload / webcam / sample), set confidence + the phone
+alert threshold, press **▶ Start**. You get the live annotated view, a
+**per-worker activity table**, a **phone-alert panel**, counters, and an event
+log. On first run the detector auto-downloads its weights from GitHub.
 
-### Test data
-
-I had **no real coffee-shop footage**, and the build environment's network
-policy blocked the stock-video sites (Pexels/Pixabay/Wikimedia CDNs all returned
-403). So instead of faking real footage, the repo ships **two clearly-labeled
-fixtures**, both generated locally and git-ignored:
-
-1. **Motion fixture** (`data/motion_fixture.mp4`) — recommended for the demo. A
-   *real public test image of a person* (Ultralytics' `zidane.jpg`, fetched from
-   GitHub) animated across the frame so the **real** detector and pose model
-   actually fire: you get `person` object events and several action events
-   (grinding_tamping / espresso_extraction / milk_steaming / idle) as the wrist
-   sweeps through the zones. It is a **fixture, not coffee footage** — the person
-   is a generic test image and the "coffee actions" are only inferred by the
-   zone/motion rules. The disclaimer is burned into every frame.
-
-   ```bash
-   python -m scripts.make_motion_fixture --out data/motion_fixture.mp4
-   ```
-
-2. **Synthetic shapes** (`data/synthetic_test.mp4`) — a pure crash-test. Moving
-   rectangles/circles that loosely imitate a hand and a cup. Real detectors see
-   nothing in it (so it emits no events); it only proves the pipeline runs
-   end-to-end without crashing on arbitrary input.
-
-   ```bash
-   python -m scripts.make_synthetic --out data/synthetic_test.mp4
-   ```
-
-⚠️ Neither clip is a measure of accuracy. For a real evaluation, drop an actual
-clip at `data/sample.mp4` (any short video of someone doing manual work at a
-table exercises pose + actions; a coffee-bar clip also exercises product
-detection) and select it in the sidebar — or just point the app at your webcam.
-
-### Offline / restricted networks (why there's a COCO fallback)
-
-YOLO-World embeds your text prompts with OpenAI's **CLIP ViT-B/32** the first
-time `set_classes()` runs, and that checkpoint is hosted on a CDN
-(`openaipublic.azureedge.net`) that some locked-down networks block — the build
-environment for this MVP was one of them. When those weights can't be fetched,
-`ProductDetector` prints a warning and **falls back to a COCO-pretrained
-`yolov8s.pt`** (which downloads fine from GitHub), remapping the overlapping COCO
-classes to the coffee vocabulary (`cup → "coffee cup"`, `bottle → "milk carton"`,
-`person → "person"`, …). COCO has no *espresso machine* / *portafilter* class, so
-those aren't detected in fallback mode. Check which path is active with
-`detector.mode` (`"yolo-world"` vs `"coco-fallback"`), shown in the console.
-
-**On a machine with normal internet, YOLO-World is used automatically — nothing
-to configure**, and the full open-vocabulary prompt list works.
-
-## Standalone smoke-test scripts
-
-Each pipeline stage has its own runnable script (handy for debugging):
+### Process a file from the command line
 
 ```bash
-python -m scripts.detect_demo --source data/motion_fixture.mp4 --out out_detect.mp4
-python -m scripts.pose_demo   --source data/motion_fixture.mp4 --out out_pose.mp4
+python -m scripts.run_on_video --source incoming/clip.mp4 --max-seconds 60
+# writes outputs/<name>_activity.mp4 + prints object / activity / alert summaries
+# useful flags: --start-seconds N  --conf 0.2  --phone-alert-seconds 45
 ```
 
-They print detection/pose counts so you can confirm the stage produces non-empty
-results.
+## ⚠️ Honest limits — read this before trusting the numbers
 
-There's also a dependency-free unit test that the action state machine can reach
-all five labels and that its debounce holds:
+This was tuned against a **real overhead coffee-bar clip** (`IMG_6936`, 230 s).
+What that footage taught us:
+
+- **Workers detect and track well** (≈2–3 people/frame). Counting and
+  presence/idle-vs-active are reliable.
+- **Phones barely register from a high overhead angle** — a `cell phone` was
+  detected in only **6 of 3,483 frames**. So the 45 s phone rule is *implemented
+  correctly* but **won't reliably fire on overhead footage** — the wall is
+  detection recall, not the logic. Reliable phone-on-shift detection needs one
+  of: a lower/side camera angle, higher resolution, YOLO-World with a tuned
+  prompt, or a **fine-tuned model** (see *Extending*).
+- **Cups are everywhere** (10k+ detections, mostly static on the counter), so
+  `making_drink` requires the worker to be *moving* to avoid firing on someone
+  merely standing near cups. `bowl` is treated as drinkware, not food, because
+  detectors read cafe containers as "bowl" constantly (would false-trigger
+  eating).
+- **ByteTrack ids can switch** under the heavy occlusion of a cramped overhead
+  view, so "unique workers" over-counts.
+
+Bottom line: the pipeline is correct and the overlay is clean, but **off-the-shelf
+detection on this camera angle limits the fine activities (phone/eating).** The
+fix is better input or a trained model — not more rules.
+
+## Offline / restricted networks (COCO fallback)
+
+YOLO-World embeds prompts with CLIP ViT-B/32 the first time `set_classes()` runs,
+from a CDN some networks block (the build environment for this MVP was one).
+When unreachable, `ProductDetector` prints a warning and uses COCO `yolov8s.pt`,
+keeping the activity-relevant COCO classes. `detector.mode` is `"yolo-world"` or
+`"coco-fallback"`. On a normal-internet machine YOLO-World is used automatically.
+
+## Adapting to your shop
+
+- **Detector vocabulary** — edit the sidebar prompts, or `ACTIVITY_PROMPTS` in
+  `src/detector.py`.
+- **Activity rules / categories** — `src/activity.py`: the `_PHONE/_FOOD/_DRINK`
+  label sets and `_raw_activity()`. Tune `phone_alert_seconds`, `commit_seconds`,
+  `motion_threshold`, `assoc_expand` in `RuleBasedActivityRecognizer`.
+
+## Extending — the real "learning" step
+
+`ActivityRecognizer` is an interface: `update(frame_index, ts, persons, objects)
+-> ActivityFrameResult`. The rule-based class is one implementation. To go
+ML-based (the accurate path for phone/eating): label spans of your footage per
+worker, train a per-track temporal classifier, and drop in a new subclass with
+the same signature and the same activity labels — **nothing in the pipeline or UI
+changes**. Recipe is at the top of `src/activity.py`. The detector is likewise
+swappable behind `ProductDetector.detect()/track()`.
+
+## Tests
 
 ```bash
-python tests/test_action_recognizer.py     # or: python -m pytest tests/ -q
+python tests/test_activity.py        # or: python -m pytest tests/ -q
 ```
 
-### How this MVP was verified
-
-Every step was actually run, not assumed: detector on a real image (non-empty
-boxes), MediaPipe pose (wrists found on real frames), the full `Pipeline` on the
-motion fixture (logged `person` + 4 action types to SQLite), and the Streamlit
-app driven end-to-end in a real headless browser — it reached the *Done* banner
-with no error and populated the events table. In this environment the detector
-ran in **COCO-fallback** mode (CLIP CDN blocked, see above).
-
-## Calibrating zones for your camera
-
-Zones tell the action rules *where* the grinder, group head, steam wand and
-counter are in the frame. Draw them once on the first frame:
-
-```bash
-python -m scripts.calibrate_zones --source data/sample.mp4    # or --source 0 for webcam
-```
-
-Click **4 corners** for each of `grinder`, `group_head`, `steam_wand`,
-`counter` (keys: `u` undo, `r` restart, `n` skip, `q` quit). The result is saved
-to `config/zones.json` and picked up automatically by the app.
-
-**Headless machine (no display)?** Use `--auto` to write evenly-tiled default
-zones so the pipeline still runs:
-
-```bash
-python -m scripts.calibrate_zones --source data/synthetic_test.mp4 --auto
-```
-
-Without any zones the app still works — it falls back to **object + motion**
-rules only (see `RuleBasedActionRecognizer._raw_label`).
-
-## Adapting to your menu
-
-Edit the detector prompts — either the **sidebar text box** at runtime, or the
-default list in [`src/detector.py`](src/detector.py) (`DEFAULT_PROMPTS`). YOLO-World
-re-embeds the words and starts detecting them; no retraining needed. Example:
-
-```python
-DEFAULT_PROMPTS = ["matcha tin", "oat milk carton", "to-go cup", "person", ...]
-```
-
-## Extension points for future model training
-
-The design keeps a clean seam so you can replace the rule-based parts with
-trained models **without touching the pipeline or UI**:
-
-- **Actions → a trained temporal model.** `ActionRecognizer` in
-  [`src/action_recognizer.py`](src/action_recognizer.py) is an interface with a
-  single contract: `update(FrameContext) -> ActionPrediction`. The rule-based
-  class is one implementation. To go ML-based, subclass `ActionRecognizer`
-  (e.g. an LSTM/TCN over pose keypoints, or a video classifier like
-  SlowFast/MoViNet over cropped clips), keep the same 5 labels, and construct it
-  in `Pipeline(...)` instead of `RuleBasedActionRecognizer`. `FrameContext`
-  already carries wrist positions, per-wrist zone, nearby objects and
-  timestamps, so no extra plumbing is needed. Full recipe is documented at the
-  top of that file.
-- **Detection → a fine-tuned detector.** `ProductDetector` in
-  [`src/detector.py`](src/detector.py) wraps the model behind `detect()` /
-  `track()`. Swap in a fine-tuned YOLO (or any detector returning the same
-  `Detection` dataclass) and nothing downstream changes.
-
-## Assumptions & notes (decisions made without asking)
-
-- **No real footage available / stock CDNs blocked here** → shipped two labeled
-  fixtures (motion + shapes) instead of faking real footage, and made explicit
-  that neither is an accuracy test.
-- **CLIP CDN blocked here** → added a COCO-YOLOv8 fallback so the demo runs
-  offline; YOLO-World stays the default whenever CLIP is reachable.
-- **Detection confidence defaults to a low 0.05** — YOLO-World's open-vocabulary
-  scores run low, and a coffee-bar scene differs a lot from the model's training
-  distribution; a low threshold favors *seeing* objects for the demo over
-  precision. Tune it in the sidebar.
-- **Streamlit processes a bounded number of seconds per run** (sidebar slider,
-  default 20 s) so the demo stays responsive and webcam runs are finite.
-- **The app processes as fast as it can and shows every processed frame** rather
-  than enforcing real-time playback; on CPU this is slower than real-time, which
-  is an accepted MVP trade-off.
-- **Events are namespaced by a per-UI-session id** so repeated runs don't mix in
-  the counters; the SQLite file persists across runs (use *Clear events*).
-- **`data/sample.mp4` and the synthetic clip are git-ignored** to keep the repo
-  light — regenerate the synthetic one with the command above.
+Covers: activities reachable, the 45 s phone alert timing, no-alert under
+threshold, and independent per-worker timers.
 
 ## Project layout
 
 ```
 coffee_vision/
-├── app.py                     # Streamlit UI (the demo)
+├── app.py                       # Streamlit worker-activity monitor
 ├── requirements.txt
-├── config/zones.json          # created by calibrate_zones.py
-├── data/                      # sample.mp4 / synthetic_test.mp4 (git-ignored)
-├── tests/
-│   └── test_action_recognizer.py   # deterministic action-rule tests
+├── data/                        # fixtures / your sample.mp4 (git-ignored)
+├── tests/test_activity.py
 ├── scripts/
-│   ├── make_synthetic.py      # shapes crash-test fixture
-│   ├── make_motion_fixture.py # public-image motion fixture (real events)
-│   ├── calibrate_zones.py     # click 4 corners per zone
-│   ├── detect_demo.py         # step-2 detector smoke test
-│   └── pose_demo.py           # step-3 pose smoke test
+│   ├── run_on_video.py          # run pipeline on a file -> annotated mp4 + stats
+│   ├── detect_demo.py           # bare detector smoke test
+│   ├── make_synthetic.py        # shapes crash-test fixture
+│   └── make_motion_fixture.py   # public-image motion fixture
 └── src/
-    ├── detector.py            # YOLO-World (+ COCO fallback) + ByteTrack wrapper
-    ├── pose.py                # MediaPipe Pose wrapper
-    ├── zones.py               # polygon zones + point-in-zone
-    ├── action_recognizer.py   # ActionRecognizer interface + rule-based impl
-    ├── events.py              # SQLite event store
-    ├── video_source.py        # webcam / file frame iterator
-    └── pipeline.py            # per-frame orchestration + drawing
+    ├── detector.py              # YOLO-World (+ COCO fallback) + ByteTrack
+    ├── activity.py              # per-worker activity rules + phone alert
+    ├── events.py                # SQLite event store
+    ├── pipeline.py              # per-frame orchestration + overlay
+    └── video_source.py          # webcam / file frame iterator
+```
+
+## Notes / assumptions
+
+- Processes a bounded number of seconds per run (sidebar slider) so webcam runs
+  are finite and the demo stays responsive; CPU inference is slower than
+  real-time (~5–7 fps here), an accepted MVP trade-off.
+- Events persist in `events.db` (git-ignored), namespaced per UI session; the app
+  auto-migrates an older `events.db` to the current schema.
+- No real coffee footage ships in the repo; point the app at your own clip or
+  webcam. Fixtures are generated locally (see `data/README.md`).
 ```

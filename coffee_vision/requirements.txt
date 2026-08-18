@@ -1,10 +1,8 @@
-# Coffee Vision MVP — pinned to a set known to co-install cleanly on Python 3.11.
-# mediapipe is the tightest constraint: it needs numpy<2 and a matching opencv/protobuf.
+# Coffee Vision — worker activity monitor. Pinned to a co-installable set on Py3.11.
 ultralytics==8.3.0
-mediapipe==0.10.14
 opencv-python==4.10.0.84
 streamlit==1.38.0
 numpy==1.26.4
-# ByteTrack (model.track) needs a linear-assignment lib; ultralytics auto-installs
-# it otherwise, but pin it so a clean install has everything up front.
+pandas==2.3.3
+# ByteTrack (model.track) needs a linear-assignment lib.
 lapx==0.9.4
