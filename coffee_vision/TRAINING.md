@@ -34,14 +34,23 @@ Classes live in `training/classes.py` (`phone, cup, food, person`). The names
 match the activity rules, so a trained model plugs straight in. Add classes at
 the **end** to keep existing label indices valid.
 
-### 3. Correct the labels  (run on a machine with a display)
+### 3. Correct the labels
+
+**Browser labeler (recommended)** — no extra dependencies, any browser:
 ```bash
-python -m scripts.label
+python -m scripts.label_web      # then open http://localhost:8000
 ```
-Left-drag to draw, digits `0..3` set/reassign class, click+`d` deletes,
-`n`/`p` navigate (auto-saves), `q` quits. **Box every phone in a hand** — tight.
-Prefer a GUI tool instead? The dataset is standard YOLO format, so LabelImg /
-Label Studio / Roboflow all work on `training/dataset`.
+Left-drag to draw a box, drag inside to move, drag the corner to resize, digits
+`0..3` set/reassign class, `d` deletes, `n`/`p` navigate (auto-saves), `f` jumps
+to the next unlabeled image. The left panel tracks labeled/total and shows a
+green dot per finished image. Labels are written straight to
+`training/dataset/labels/`. **Box every phone in a hand** — tight; that's the
+whole point.
+
+Prefer a desktop app? There's also a minimal OpenCV labeler,
+`python -m scripts.label` (needs a local display), and because the dataset is
+standard YOLO format, LabelImg / Label Studio / Roboflow work on
+`training/dataset` too.
 
 ### 4. Fine-tune
 ```bash
@@ -75,9 +84,11 @@ YOLO-World / COCO.
   pipeline/UI stay unchanged.
 
 ## Verified
-The extract → prelabel → train → auto-load loop was run end-to-end on the sample
-footage (a 3-epoch CPU smoke run) to confirm it produces `models/custom.pt` and
-that the detector switches to `custom` mode. That smoke run trains on
-*pseudo-labels*, so it validates the machinery, not accuracy — real gains come
-from **your corrected labels** in step 3.
+The extract → prelabel → label → train → auto-load loop was run end-to-end on the
+sample footage: frames extracted, pseudo-labeled, the **browser labeler** driven
+in a real browser (draw box → save → written to disk with correct YOLO coords), a
+3-epoch CPU smoke train produced `models/custom.pt`, and the detector switched to
+`custom` mode. The smoke run trains on *pseudo-labels*, so it validates the
+machinery, not accuracy — real gains come from **your corrected labels** in
+step 3.
 ```
