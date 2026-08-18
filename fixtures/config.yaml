@@ -1,0 +1,26 @@
+# Configuration for the regression fixture set.
+base_currency: UZS
+vat_rate: 0.12
+suppliers_per_block: 2
+
+# Rates are pinned here so the fixture run is reproducible; a real run either
+# uses rates supplied by the buyer or --fx-online (CBU).
+fx_source: "fixture (pinned rates, not live)"
+fx_date: "2025-03-20"
+fx:
+  USD: 12950.0
+  EUR: 14100.0
+  RUB: 152.0
+  TRY: 355.0
+
+# What is being purchased. Blocks and totals are generated from this list, so
+# the engine never needs to know what a "tank" is.
+spec:
+  - description: "Резервуар горизонтальный стальной РГС-50, 50 м3"
+    qty: 4
+    unit: "шт"
+    match: ["резервуар горизонтальный", "РГС-50", "rezervuar gorizontal"]
+  - description: "Резервуар вертикальный стальной РВС-100, 100 м3"
+    qty: 2
+    unit: "шт"
+    match: ["резервуар вертикальный", "РВС-100", "rezervuar vertikal"]

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "compsheet"
+version = "0.1.0"
+description = "Сборка конкурентного листа из шаблона .xlsx и разнородных КП поставщиков"
+requires-python = ">=3.10"
+dependencies = [
+    "openpyxl>=3.1",
+    "PyYAML>=6.0",
+    "anthropic>=0.40",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "python-docx>=1.1"]
+
+[project.scripts]
+build-competitive-sheet = "compsheet.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["compsheet*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]
