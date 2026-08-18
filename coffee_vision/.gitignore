@@ -17,3 +17,7 @@ data/sample.mp4
 
 # cached downloads (test image for the motion fixture)
 .cache/
+
+# user-supplied videos and generated run outputs
+incoming/
+outputs/
