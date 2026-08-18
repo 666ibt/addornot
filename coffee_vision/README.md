@@ -109,6 +109,11 @@ keeping the activity-relevant COCO classes. `detector.mode` is `"yolo-world"` or
 
 ## Extending — the real "learning" step
 
+**Fine-tune a detector on your own camera** to fix the phone-recall wall — see
+[`TRAINING.md`](TRAINING.md) for the full loop (extract frames → auto pre-label →
+correct labels → train → the app auto-loads `models/custom.pt`). This is the
+highest-value improvement for phone/eating detection.
+
 `ActivityRecognizer` is an interface: `update(frame_index, ts, persons, objects)
 -> ActivityFrameResult`. The rule-based class is one implementation. To go
 ML-based (the accurate path for phone/eating): label spans of your footage per

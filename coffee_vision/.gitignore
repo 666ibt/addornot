@@ -22,6 +22,14 @@ data/sample.mp4
 incoming/
 outputs/
 
+# training data & artifacts (your footage / large / machine-specific)
+training/dataset/images/
+training/dataset/labels/
+training/dataset/data.yaml
+training/runs/
+models/*.pt
+models/active.txt
+
 # user-supplied videos and generated run outputs
 incoming/
 outputs/

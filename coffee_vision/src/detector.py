@@ -16,9 +16,14 @@ remapping. Check `detector.mode` (`"yolo-world"` vs `"coco-fallback"`).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
 import numpy as np
+
+# If a model fine-tuned on your own footage is installed here (by scripts.train),
+# it is used in preference to YOLO-World / COCO. Its own class names drive labels.
+_CUSTOM_WEIGHTS = Path(__file__).resolve().parent.parent / "models" / "custom.pt"
 
 # Open-vocabulary vocabulary (YOLO-World prompts). Ordering doesn't matter.
 ACTIVITY_PROMPTS: List[str] = [
@@ -91,6 +96,7 @@ class ProductDetector:
         device: Optional[str] = None,
         allow_fallback: bool = True,
         coco_keep: Optional[Set[str]] = None,
+        custom_weights: Optional[str] = None,
     ) -> None:
         from ultralytics import YOLO  # lazy: pulls in torch
 
@@ -100,6 +106,16 @@ class ProductDetector:
         self.mode = "yolo-world"
         self.coco_keep = set(coco_keep) if coco_keep is not None else set(COCO_KEEP)
         self._coco_names: dict = {}
+
+        # 1) prefer a fine-tuned model when present (explicit arg or installed file)
+        cw = custom_weights or (str(_CUSTOM_WEIGHTS) if _CUSTOM_WEIGHTS.exists() else None)
+        if cw:
+            self.model = YOLO(cw)
+            self._coco_names = dict(self.model.names)
+            self.mode = "custom"
+            print(f"[detector] using fine-tuned weights: {cw} "
+                  f"(classes: {list(self.model.names.values())})")
+            return
 
         try:
             self.model = YOLO(weights)
@@ -126,6 +142,9 @@ class ProductDetector:
     def _label_for_class(self, k: int) -> Optional[str]:
         if self.mode == "yolo-world":
             return self.prompts[k] if 0 <= k < len(self.prompts) else str(k)
+        if self.mode == "custom":
+            # trust the fine-tuned model's own class names (all are wanted)
+            return self._coco_names.get(k)
         coco = self._coco_names.get(k)
         return coco if (coco in self.coco_keep) else None
 
