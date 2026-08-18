@@ -18,6 +18,10 @@ data/sample.mp4
 # cached downloads (test image for the motion fixture)
 .cache/
 
+# ad-hoc video intake + processing outputs
+incoming/
+outputs/
+
 # user-supplied videos and generated run outputs
 incoming/
 outputs/
