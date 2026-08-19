@@ -1125,8 +1125,31 @@ function sortReset() {
   $('sortSrcLabel').classList.add('muted');
   $('sortDestLabel').textContent = 'не выбрана';
   $('sortDestLabel').classList.add('muted');
+  $('sortMatchExisting').checked = false;
   $('sortReport').classList.add('hidden');
   $('sortReport').innerHTML = '';
+  sortUpdateHint();
+  sortUpdateButtons();
+}
+
+// The hint below the pickers reflects the current mode.
+function sortUpdateHint() {
+  const match = $('sortMatchExisting').checked;
+  $('sortHint').innerHTML = match
+    ? 'Режим сопоставления: приложение ищет уже существующую папку договора в папке назначения '
+      + '(по числовому коду, напр. <code>425-25</code>) и кладёт файл в её подпапку <code>ТТН</code>. '
+      + 'Новые папки НЕ создаются. Файлы <code>-АЗС</code> ищутся только среди папок с «АЗС». '
+      + 'Ненайденные, неоднозначные и без подпапки ТТН уходят в <code>{источник}/неотсортированные/</code>.'
+    : 'Файлы вида <code>{накладная}_{договор}.pdf</code> раскладываются по папкам договоров: '
+      + '<code>{назначение}/{договор}/ТТН/</code>. Проблемные (договор или накладная = NA) уходят '
+      + 'в <code>{источник}/неотсортированные/</code>. Сначала сделайте пробный прогон — ничего не двигается.';
+}
+
+// Toggling the mode invalidates any shown plan (targets differ per mode).
+function sortOnModeChange() {
+  sortState.report = null;
+  $('sortReport').classList.add('hidden');
+  sortUpdateHint();
   sortUpdateButtons();
 }
 
@@ -1166,7 +1189,10 @@ async function sortDryRun() {
   sortUpdateButtons();
   showProcLoader();
   try {
-    const report = await api.sortPlan({ sourceDir: sortState.source, destDir: sortState.dest });
+    const report = await api.sortPlan({
+      sourceDir: sortState.source, destDir: sortState.dest,
+      matchExisting: $('sortMatchExisting').checked,
+    });
     sortState.report = report;
     renderSortReport(report, false);
     toast(`План готов: к сортировке ${report.toSort}, проблемных ${report.problems}.`, 'ok');
@@ -1187,7 +1213,10 @@ async function sortApply() {
   sortUpdateButtons();
   showProcLoader();
   try {
-    const res = await api.sortApply({ sourceDir: sortState.source, destDir: sortState.dest });
+    const res = await api.sortApply({
+      sourceDir: sortState.source, destDir: sortState.dest,
+      matchExisting: $('sortMatchExisting').checked,
+    });
     applySortResult(res);
     const msg = `Перемещено ${res.moved}` +
       (res.unsortedMoved ? `, в «неотсортированные» ${res.unsortedMoved}` : '') +
@@ -1237,18 +1266,24 @@ function renderSortReport(report, applied) {
   const wrap = $('sortReport');
   const parts = [];
 
+  const match = !!report.matchExisting;
   parts.push(`<div class="sort-stats">
     ${sortStat('всего PDF', report.totalPdf)}
-    ${sortStat('к сортировке', report.toSort, 'good')}
-    ${sortStat('папок договоров', report.folderCount)}
-    ${sortStat('проблемных', report.problems, report.problems ? 'warn' : '')}
+    ${sortStat(match ? 'сопоставлено' : 'к сортировке', report.toSort, 'good')}
+    ${sortStat(match ? 'папок найдено' : 'папок договоров', report.folderCount)}
+    ${sortStat(match ? 'не сопоставлено' : 'проблемных', report.problems, report.problems ? 'warn' : '')}
     ${sortStat('совпадений имён', report.conflicts, report.conflicts ? 'warn' : '')}
   </div>`);
+
+  if (match) {
+    parts.push('<p class="hint" style="margin:0 0 12px">Режим сопоставления с существующими папками: '
+      + 'новые папки не создаются, файлы кладутся в подпапку «ТТН» найденной папки договора.</p>');
+  }
 
   parts.push(`<div class="sort-done ${applied ? '' : 'hidden'}"></div>`);
 
   if (report.groups.length) {
-    parts.push('<h3 class="sort-h">По договорам</h3>');
+    parts.push(`<h3 class="sort-h">${match ? 'В существующие папки договоров' : 'По договорам'}</h3>`);
     for (const g of report.groups) {
       const rows = g.files.map((f) => `
         <div class="sort-file" data-file="${escapeHtml(f.fileName)}" data-folder="${escapeHtml(g.folder)}">
@@ -1410,6 +1445,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Сортировка накладных
   $('sortSrcBtn').addEventListener('click', sortPickSource);
+  $('sortMatchExisting').addEventListener('change', sortOnModeChange);
   $('sortDestBtn').addEventListener('click', sortPickDest);
   $('sortDryBtn').addEventListener('click', sortDryRun);
   $('sortApplyBtn').addEventListener('click', sortApply);

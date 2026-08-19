@@ -13,6 +13,7 @@ const { extractWithClaude } = require('./ai');
 const { extract, makeFilename, sanitizeForFilename } = require('./extract');
 const { parseApproval } = require('./extract-approval');
 const { buildSortPlan } = require('./sort');
+const { matchWaybills } = require('./matchExistingFolders');
 const { presetOpts, savingsPercent } = require('./compress');
 const { readJpegOrientation, orientationPlan } = require('./exif');
 const { getSettings, setSettings } = require('./settings');
@@ -630,14 +631,85 @@ async function listPdfNames(dir) {
   return entries.filter((e) => e.isFile() && /\.pdf$/i.test(e.name)).map((e) => e.name);
 }
 
+/** First-level subdirectories of `dir`, as {name, path}. Scanned once per run —
+ *  the destination may be a slow network share with hundreds of folders. */
+async function listSubdirs(dir) {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  return entries.filter((e) => e.isDirectory()).map((e) => ({ name: e.name, path: path.join(dir, e.name) }));
+}
+
+/** Locate the «ТТН» subfolder inside a contract folder (case-insensitive,
+ *  trimmed). Cached per folder path for the whole run so a folder with 1000+
+ *  files on a network share is listed only once. Returns its path or null. */
+async function findTtnSubdir(folderPath, cache) {
+  if (cache.has(folderPath)) return cache.get(folderPath);
+  let result = null;
+  try {
+    const entries = await fs.readdir(folderPath, { withFileTypes: true });
+    const hit = entries.find((e) => e.isDirectory() && e.name.trim().toLowerCase() === 'ттн');
+    if (hit) result = path.join(folderPath, hit.name);
+  } catch (_) { result = null; }
+  cache.set(folderPath, result);
+  return result;
+}
+
+/**
+ * Resolve where each waybill goes when matching AGAINST existing contract
+ * folders in `destDir` (the "искать, а не создавать" mode). Read-only: it scans
+ * `destDir` once, matches by numeric core (see matchExistingFolders.js), and
+ * finds each matched folder's «ТТН» subfolder (cached). Returns matched groups
+ * plus an `unsorted` list that already folds in the NA/format problems, the
+ * AMBIGUOUS / NOT FOUND / NO_TTN_FOLDER cases with human-readable reasons.
+ */
+async function resolveMatchPlan(destDir, plan) {
+  const folders = await listSubdirs(destDir);
+  const items = plan.groups.flatMap((g) => g.items).map((it) => ({ fileName: it.fileName, dogovor: it.dogovor }));
+  const { matched, ambiguous, notFound } = matchWaybills(items, folders);
+
+  const ttnCache = new Map();
+  const groupsByPath = new Map();
+  const unsorted = [...plan.unsorted]; // NA / wrong-format problems stay as-is
+
+  for (const m of matched) {
+    // eslint-disable-next-line no-await-in-loop
+    const ttnDir = await findTtnSubdir(m.folder.path, ttnCache);
+    if (!ttnDir) {
+      unsorted.push({ fileName: m.fileName, reason: `в папке «${m.folder.name}» нет подпапки «ТТН»` });
+      continue;
+    }
+    let g = groupsByPath.get(m.folder.path);
+    if (!g) {
+      g = { folderName: m.folder.name, ttnDir, targetRel: path.join(m.folder.name, path.basename(ttnDir)), items: [] };
+      groupsByPath.set(m.folder.path, g);
+    }
+    g.items.push({ fileName: m.fileName, dogovor: m.dogovor });
+  }
+
+  for (const a of ambiguous) {
+    unsorted.push({
+      fileName: a.fileName,
+      reason: `неоднозначно — несколько папок с кодом ${a.core}: ${a.candidates.map((c) => c.name).join('; ')}`,
+    });
+  }
+  for (const nf of notFound) {
+    const code = nf.core ? `код ${nf.core}` : 'нет числового кода';
+    const hint = nf.similar.length ? ` (похожие: ${nf.similar.join('; ')})` : '';
+    unsorted.push({ fileName: nf.fileName, reason: `папка договора не найдена — ${code}${hint}` });
+  }
+
+  return { groups: [...groupsByPath.values()], unsorted };
+}
+
 /**
  * Build the full sort plan for the UI: where each file would go, with on-disk
  * collision resolution (so the report shows the real target name, e.g. _2.pdf).
  * Read-only — safe to run as a dry run.
  */
-async function buildSortReport(sourceDir, destDir) {
+async function buildSortReport(sourceDir, destDir, matchExisting) {
   const names = await listPdfNames(sourceDir);
   const plan = buildSortPlan(names);
+
+  if (matchExisting) return buildMatchReport(sourceDir, destDir, plan);
 
   const groups = [];
   let conflicts = 0;
@@ -672,6 +744,85 @@ async function buildSortReport(sourceDir, destDir) {
   };
 }
 
+/** Read-only report for the match-existing-folders mode (dry run). */
+async function buildMatchReport(sourceDir, destDir, plan) {
+  const rp = await resolveMatchPlan(destDir, plan);
+  const groups = [];
+  let conflicts = 0;
+  for (const g of rp.groups) {
+    const used = new Set();
+    const files = [];
+    for (const it of g.items) {
+      // eslint-disable-next-line no-await-in-loop
+      const finalName = await uniqueName(g.ttnDir, it.fileName, used);
+      const conflict = finalName !== it.fileName;
+      if (conflict) conflicts += 1;
+      files.push({ fileName: it.fileName, nakladnaya: '', dogovor: it.dogovor, finalName, conflict });
+    }
+    groups.push({ folder: g.folderName, targetRel: g.targetRel, files });
+  }
+  const toSort = groups.reduce((n, g) => n + g.files.length, 0);
+  return {
+    matchExisting: true,
+    sourceDir, destDir,
+    totalPdf: plan.totalPdf,
+    toSort,
+    problems: rp.unsorted.length,
+    folderCount: groups.length,
+    conflicts,
+    groups,
+    unsorted: rp.unsorted,
+  };
+}
+
+/** Actually move files into existing folders' «ТТН» subfolders (apply). */
+async function applyMatch(sourceDir, destDir, plan) {
+  const rp = await resolveMatchPlan(destDir, plan);
+  const results = [];
+  let moved = 0;
+  let failed = 0;
+
+  for (const g of rp.groups) {
+    const used = new Set();
+    for (const it of g.items) {
+      // eslint-disable-next-line no-await-in-loop
+      const finalName = await uniqueName(g.ttnDir, it.fileName, used);
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await moveFile(path.join(sourceDir, it.fileName), path.join(g.ttnDir, finalName));
+        moved += 1;
+        results.push({ fileName: it.fileName, folder: g.folderName, finalName, ok: true });
+      } catch (err) {
+        failed += 1;
+        results.push({ fileName: it.fileName, folder: g.folderName, ok: false, error: String(err.message || err) });
+      }
+    }
+  }
+
+  // Everything that didn't match → неотсортированные in the SOURCE folder.
+  let unsortedMoved = 0;
+  const unsortedDir = path.join(sourceDir, UNSORTED_DIR);
+  if (rp.unsorted.length) {
+    await fs.mkdir(unsortedDir, { recursive: true });
+    const used = new Set();
+    for (const u of rp.unsorted) {
+      // eslint-disable-next-line no-await-in-loop
+      const finalName = await uniqueName(unsortedDir, u.fileName, used);
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await moveFile(path.join(sourceDir, u.fileName), path.join(unsortedDir, finalName));
+        unsortedMoved += 1;
+        results.push({ fileName: u.fileName, folder: UNSORTED_DIR, finalName, ok: true });
+      } catch (err) {
+        failed += 1;
+        results.push({ fileName: u.fileName, folder: UNSORTED_DIR, ok: false, error: String(err.message || err) });
+      }
+    }
+  }
+
+  return { moved, failed, unsortedMoved, unsortedDir, results };
+}
+
 // Two folder pickers. Titles differ so the dialog is self-explanatory.
 ipcMain.handle('sort:pickSource', async () => {
   const res = await dialog.showOpenDialog(mainWindow, {
@@ -689,20 +840,22 @@ ipcMain.handle('sort:pickDest', async () => {
 });
 
 // Dry run: compute the plan without touching disk.
-ipcMain.handle('sort:plan', async (_e, { sourceDir, destDir }) => {
+ipcMain.handle('sort:plan', async (_e, { sourceDir, destDir, matchExisting }) => {
   if (!sourceDir) throw new Error('Не выбрана папка с накладными.');
   if (!destDir) throw new Error('Не выбрана папка назначения.');
-  return buildSortReport(sourceDir, destDir);
+  return buildSortReport(sourceDir, destDir, !!matchExisting);
 });
 
 // Apply: actually move the files. Re-plans against the current disk state so
 // the run is correct even if files changed since the dry run.
-ipcMain.handle('sort:apply', async (_e, { sourceDir, destDir }) => {
+ipcMain.handle('sort:apply', async (_e, { sourceDir, destDir, matchExisting }) => {
   if (!sourceDir) throw new Error('Не выбрана папка с накладными.');
   if (!destDir) throw new Error('Не выбрана папка назначения.');
 
   const names = await listPdfNames(sourceDir);
   const plan = buildSortPlan(names);
+  if (matchExisting) return applyMatch(sourceDir, destDir, plan);
+
   const results = [];
   let moved = 0;
   let failed = 0;

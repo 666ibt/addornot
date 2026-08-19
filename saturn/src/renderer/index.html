@@ -331,10 +331,12 @@
         </div>
       </div>
 
-      <p class="hint" id="sortHint">Файлы вида <code>{накладная}_{договор}.pdf</code> раскладываются по
-        папкам договоров: <code>{назначение}/{договор}/ТТН/</code>. Проблемные (договор или накладная = NA)
-        уходят в <code>{источник}/неотсортированные/</code>. Сначала сделайте пробный прогон — ничего не
-        двигается, показывается только план.</p>
+      <label class="sort-check">
+        <input type="checkbox" id="sortMatchExisting" />
+        <span>Папки договоров уже существуют в папке назначения — искать подходящую, а не создавать новую</span>
+      </label>
+
+      <p class="hint" id="sortHint"></p>
 
       <div id="sortReport" class="sort-report hidden"></div>
     </section>
