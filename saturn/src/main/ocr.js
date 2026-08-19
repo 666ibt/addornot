@@ -6,7 +6,7 @@ const os = require('os');
 const http = require('http');
 const Jimp = require('jimp');
 const { createWorker, createScheduler } = require('tesseract.js');
-const { extract } = require('./extract');
+const { waybillSignal } = require('./extract');
 
 /**
  * Thin wrapper around a single reusable Tesseract worker (rus + eng).
@@ -192,10 +192,16 @@ async function recognizeScored(scheduler, buffer, deg) {
   const buf = await rotateBuffer(buffer, deg);
   const { data } = await scheduler.addJob('recognize', buf);
   const text = data.text || '';
-  const r = extract(text);
-  const fields = (r.nakladnaya ? 1 : 0) + (r.dogovor ? 1 : 0);
+  // One pass over the text gives both the parsed fields (how we score an
+  // orientation) and the weaker "is this a waybill at all" evidence.
+  const signal = waybillSignal(text);
+  const fields = signal.fields;
   const confidence = data.confidence || 0;
-  return { text, rotation: deg, confidence, fields, score: fields * 1000 + confidence };
+  return {
+    text, rotation: deg, confidence, fields,
+    looksLikeWaybill: signal.looksLikeWaybill,
+    score: fields * 1000 + confidence,
+  };
 }
 
 /**
@@ -224,11 +230,22 @@ async function recognizeScored(scheduler, buffer, deg) {
  *      probe's pick fails do we fall back to the exhaustive full-res sweep, so
  *      genuinely hard pages are never worse off than before.
  *
+ *   4. Stop early for pages that are not waybills at all. A stray document in
+ *      the batch can never satisfy step 2 (it has no накладная/договор to find),
+ *      so it used to run the whole ladder — 3-4 full-resolution passes — before
+ *      giving up, holding a worker hostage. Now, if NOT ONE of the orientations
+ *      we already looked at shows even weak evidence of the waybill family
+ *      (see waybillSignal), we return right away with looksLikeWaybill=false.
+ *      A real waybill that merely reads badly still trips one of those markers
+ *      at some angle, so it keeps the full treatment — the early exit is only
+ *      for pages with no waybill signal anywhere.
+ *
  * The chosen rotation (a counter-clockwise jimp angle) is returned so the
- * caller can show and save the page upright.
+ * caller can show and save the page upright. `looksLikeWaybill` tells the caller
+ * whether escalating to the AI fallback is worth it at all.
  *
  * @param {Buffer} imageBuffer
- * @returns {Promise<{text: string, confidence: number, rotation: number}>}
+ * @returns {Promise<{text: string, confidence: number, rotation: number, looksLikeWaybill: boolean}>}
  */
 let lastGoodRotation = 0;
 
@@ -241,7 +258,10 @@ async function ocrImage(fullBuffer) {
   const first = await recognizeScored(scheduler, imageBuffer, lastGoodRotation);
   if (first.fields >= 1) {
     lastGoodRotation = first.rotation;
-    return { text: first.text, confidence: first.confidence, rotation: first.rotation };
+    return {
+      text: first.text, confidence: first.confidence, rotation: first.rotation,
+      looksLikeWaybill: true,
+    };
   }
 
   // Candidate angles still plausible for this page shape (minus the one tried).
@@ -254,6 +274,26 @@ async function ocrImage(fullBuffer) {
   const probes = await Promise.all(candidates.map((deg) => recognizeScored(scheduler, small, deg)));
   probes.sort((a, b) => b.score - a.score);
 
+  // Evidence seen so far, across every angle we have looked at (one full-res
+  // pass + the low-res probes). The headline words of both forms are large, so
+  // they survive the down-scale — if none of them showed up anywhere, this page
+  // is not a waybill and there is nothing left for more OCR to find.
+  const seen = [first, ...probes];
+  if (!seen.some((r) => r.looksLikeWaybill)) {
+    // Nothing more to find. There is no "right" orientation for a page that
+    // isn't a waybill, so fall back to the same heuristic the old exhaustive
+    // sweep ended on — the angle that simply READ best — but taken from the
+    // passes we have already paid for. The first pass is full-resolution and so
+    // usually wins on confidence, which conveniently means "keep the batch's
+    // orientation" unless another angle reads clearly better.
+    let bestRead = first;
+    for (const r of seen) if (r.confidence > bestRead.confidence) bestRead = r;
+    return {
+      text: bestRead.text, confidence: bestRead.confidence, rotation: bestRead.rotation,
+      looksLikeWaybill: false,
+    };
+  }
+
   // 3) Confirm the probe's best guess with a single full-resolution pass.
   const results = [first];
   if (probes.length) {
@@ -261,7 +301,10 @@ async function ocrImage(fullBuffer) {
     results.push(top);
     if (top.fields >= 1) {
       lastGoodRotation = top.rotation;
-      return { text: top.text, confidence: top.confidence, rotation: top.rotation };
+      return {
+        text: top.text, confidence: top.confidence, rotation: top.rotation,
+        looksLikeWaybill: true,
+      };
     }
   }
 
@@ -276,7 +319,12 @@ async function ocrImage(fullBuffer) {
   // Only remember an orientation that actually yielded a field, so a blank or
   // unreadable page can't set a bad hint for the next one.
   if (best.fields >= 1) lastGoodRotation = best.rotation;
-  return { text: best.text, confidence: best.confidence, rotation: best.rotation };
+  return {
+    text: best.text, confidence: best.confidence, rotation: best.rotation,
+    // We got here because SOME angle looked waybill-ish: a hard scan worth the
+    // AI fallback, even though the regexes came up empty.
+    looksLikeWaybill: true,
+  };
 }
 
 /** Convert the chosen jimp (CCW) angle to a PDF /Rotate (CW) angle. */

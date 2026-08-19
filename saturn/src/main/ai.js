@@ -15,6 +15,11 @@
 const DEFAULT_MODEL = 'claude-opus-4-8';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 
+// Give up on a single page rather than let a stalled request hold an OCR worker
+// (and therefore the whole batch) hostage. The page simply keeps its local OCR
+// result and is flagged for review, exactly as any other AI failure.
+const REQUEST_TIMEOUT_MS = 25000;
+
 const SYSTEM_PROMPT = `Ты — ассистент по разбору отсканированных топливных накладных (ТТН / ГСМ).
 На изображении одна страница накладной. Это либо российская
 "Товарно-транспортная накладная" (типовая форма № 1-т), либо накладная
@@ -68,34 +73,48 @@ async function extractWithClaude(imageBuffer, opts) {
     ],
   };
 
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': opts.apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify(body),
-  });
+  // The timer covers the whole exchange — headers AND body — so a connection
+  // that opens and then stalls mid-response is cut off too.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': opts.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`Claude API error ${res.status}: ${detail.slice(0, 300)}`);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`Claude API error ${res.status}: ${detail.slice(0, 300)}`);
+    }
+
+    const data = await res.json();
+    const text = (data.content || [])
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim();
+
+    const parsed = parseJsonLoose(text);
+    return {
+      nakladnaya: (parsed.nakladnaya || '').toString().trim(),
+      dogovor: (parsed.dogovor || '').toString().trim(),
+      source: 'ai',
+    };
+  } catch (err) {
+    if (err && err.name === 'AbortError') {
+      throw new Error(`Claude API не ответил за ${Math.round(REQUEST_TIMEOUT_MS / 1000)} с — оставлено локальное распознавание.`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-
-  const data = await res.json();
-  const text = (data.content || [])
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('')
-    .trim();
-
-  const parsed = parseJsonLoose(text);
-  return {
-    nakladnaya: (parsed.nakladnaya || '').toString().trim(),
-    dogovor: (parsed.dogovor || '').toString().trim(),
-    source: 'ai',
-  };
 }
 
 /** Extract the first JSON object from a possibly-chatty response. */

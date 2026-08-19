@@ -248,6 +248,8 @@ button.ghost:hover { border-color: #3a4552; }
 .badge.low { background: rgba(248,113,113,.15); color: var(--red); }
 .badge.ai { background: rgba(59,130,246,.15); color: #7cabff; }
 .badge.reor { background: rgba(139,197,63,.15); color: #a3d55f; }
+/* «не похоже на ТТН» — a stray, non-waybill page found in the batch */
+.badge.notttn { background: rgba(251,191,36,.14); color: var(--amber); border: 1px solid rgba(251,191,36,.35); }
 .card.saved { outline: 2px solid var(--green); }
 .card.error { outline: 2px solid var(--red); }
 

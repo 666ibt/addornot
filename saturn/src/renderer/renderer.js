@@ -406,6 +406,9 @@ function renderCard(pageId) {
   const preview = finalName(rec);
   const warn = preview.includes('NA') ? ' warn' : '';
   const showBadges = state.mode !== 'split';
+  // Set by the ТТН pipeline when no waybill markers were found at any
+  // orientation — most likely a stray page that got into the batch.
+  const notWaybill = state.mode === 'ttn' && rec.looksLikeWaybill === false;
 
   card.innerHTML = `
     <div class="thumb">${rec.thumb ? `<img src="${rec.thumb}" alt="страница" />` : '<span class="placeholder">нет превью</span>'}</div>
@@ -413,6 +416,7 @@ function renderCard(pageId) {
       <div class="meta">
         ${showBadges ? `<span class="badge ${conf}">${confLabel}</span>
         <span class="badge ${rec.source === 'ai' ? 'ai' : ''}">${srcLabel}</span>` : ''}
+        ${notWaybill ? '<span class="badge notttn" title="На странице не найдено признаков накладной (ни на одном повороте). Похоже, это посторонний документ — проверьте и удалите его из списка.">не похоже на ТТН</span>' : ''}
         <span class="src">${escapeHtml(rec.fileName)} · стр. ${rec.pageIndex + 1}</span>
       </div>
       ${fieldsHtml(rec)}
@@ -527,8 +531,10 @@ async function openZoom(pageId) {
   $('zoomTitle').textContent = `${rec.fileName} · стр. ${rec.pageIndex + 1}`;
   const conf = rec.confidence || 'low';
   const confLabel = { high: 'высокая', medium: 'средняя', low: 'низкая' }[conf] || conf;
-  $('zoomBadges').innerHTML = state.mode === 'split' ? ''
-    : `<span class="badge ${conf}">${escapeHtml(confLabel)}</span>`;
+  const notWaybill = state.mode === 'ttn' && rec.looksLikeWaybill === false;
+  $('zoomBadges').innerHTML = (state.mode === 'split' ? ''
+    : `<span class="badge ${conf}">${escapeHtml(confLabel)}</span>`)
+    + (notWaybill ? '<span class="badge notttn" title="Признаков накладной не найдено ни на одном повороте">не похоже на ТТН</span>' : '');
 
   if (state.mode === 'ttn') {
     $('zoomTtnFields').classList.remove('hidden');

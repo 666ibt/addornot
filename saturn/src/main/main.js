@@ -168,8 +168,13 @@ ipcMain.handle('page:image', async (_e, { filePath, pageIndex, rotation }) => {
 // IPC: processing
 // ---------------------------------------------------------------------------
 
-function shouldUseAi(settings, confidence) {
+function shouldUseAi(settings, confidence, looksLikeWaybill) {
   if (!settings.useAiFallback || !settings.apiKey) return false;
+  // A page with no waybill signal at any orientation is a stray document, not a
+  // hard scan — Claude has nothing to find there either, so don't spend a
+  // network round-trip (and a worker slot) on it. Genuinely difficult waybills
+  // still come through here with looksLikeWaybill = true.
+  if (looksLikeWaybill === false) return false;
   if (settings.aiOnConfidence === 'never') return false;
   if (settings.aiOnConfidence === 'medium') return confidence !== 'high';
   return confidence === 'low'; // default
@@ -246,6 +251,9 @@ ipcMain.handle('process:start', async (_e, arg) => {
     let png = null;         // rendered lazily below; freed when the task ends
     let displayPng = null;
     let ocrText = '';
+    // TTN mode only: false when OCR found no waybill markers at any orientation
+    // (a stray page in the batch). Other tools don't classify, so they stay true.
+    let looksLikeWaybill = true;
     try {
       png = await renderSinglePage(task.filePath, task.pageIndex, renderScale);
       displayPng = png;
@@ -267,9 +275,10 @@ ipcMain.handle('process:start', async (_e, arg) => {
         const ocr = await ocrImage(png);
         ocrText = ocr.text;
         rotation = ocr.rotation || 0;
+        looksLikeWaybill = ocr.looksLikeWaybill !== false;
         displayPng = rotation ? await rotateBuffer(png, rotation) : png;
         let result = extract(ocrText);
-        if (shouldUseAi(settings, result.confidence)) {
+        if (shouldUseAi(settings, result.confidence, looksLikeWaybill)) {
           try {
             const ai = await extractWithClaude(displayPng, { apiKey: settings.apiKey, model: settings.model });
             const merged = {
@@ -301,6 +310,7 @@ ipcMain.handle('process:start', async (_e, arg) => {
       fileName: path.basename(task.filePath),
       pageIndex: task.pageIndex,
       rotation,
+      looksLikeWaybill,
       mode,
       ...fields,
       ocrText,

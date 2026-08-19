@@ -7,6 +7,7 @@ const {
   extractDogovor,
   extractNakladnaya,
   detectFormat,
+  waybillSignal,
   makeFilename,
   contractToFilename,
 } = require('../src/main/extract');
@@ -265,4 +266,61 @@ test('full extract: low confidence when nothing found', () => {
   const r = extract('какой-то нераспознанный текст');
   assert.equal(r.confidence, 'low');
   assert.equal(r.filename, 'NA_NA.pdf');
+});
+
+// --- waybillSignal: "is this page a waybill at all?" ------------------------
+// This gate decides whether a page gets the full (expensive) OCR ladder and the
+// AI fallback, so both directions matter: real waybills must never be rejected,
+// and stray documents must not be dragged through the whole pipeline.
+
+test('waybillSignal: fully parsed TTN page', () => {
+  const s = waybillSignal('Товарно-транспортная накладная № 37 договор SGN-2/25');
+  assert.equal(s.looksLikeWaybill, true);
+  assert.equal(s.fields, 2);
+});
+
+test('waybillSignal: FNPZ form is recognized by its format line', () => {
+  const s = waybillSignal('НАКЛАДНАЯ НА ОТПУСК МАТЕРИАЛОВ Ферганский НПЗ');
+  assert.equal(s.looksLikeWaybill, true);
+  assert.equal(s.format, 'FNPZ');
+});
+
+test('waybillSignal: unreadable REAL waybill still passes on a single marker', () => {
+  // Nothing parses (no number, no contract) but the page is clearly a waybill —
+  // exactly the case the AI fallback exists for, so it must not be filtered out.
+  const s = waybillSignal('Т0ВАРН0-ТРАНСП0РТНАЯ НАКЛАДНАЯ ..... Грузоотправитель ~~~ ');
+  assert.equal(s.fields, 0);
+  assert.equal(s.looksLikeWaybill, true);
+  assert.ok(s.hints.length >= 1);
+});
+
+test('waybillSignal: partial marker is enough (грузополучатель / водитель)', () => {
+  assert.equal(waybillSignal('Грузополучатель: ООО Ромашка').looksLikeWaybill, true);
+  assert.equal(waybillSignal('Водитель Иванов, автомобиль МАН').looksLikeWaybill, true);
+});
+
+test('waybillSignal: stray document has no waybill markers', () => {
+  const s = waybillSignal([
+    'ПРИКАЗ № 12',
+    'О внесении изменений в штатное расписание',
+    'Генеральный директор Иванов И.И.',
+  ].join('\n'));
+  assert.equal(s.looksLikeWaybill, false);
+  assert.equal(s.fields, 0);
+  assert.deepEqual(s.hints, []);
+});
+
+test('waybillSignal: OCR garbage from a sideways blank page reads as not-a-waybill', () => {
+  const s = waybillSignal('~ ` |||  .. -- _ ,,, \\ / ??? ыв фй цук');
+  assert.equal(s.looksLikeWaybill, false);
+});
+
+test('waybillSignal: empty / missing text is not a waybill', () => {
+  assert.equal(waybillSignal('').looksLikeWaybill, false);
+  assert.equal(waybillSignal(null).looksLikeWaybill, false);
+});
+
+test('waybillSignal: a contract document is treated as waybill-ish (safe side)', () => {
+  // A false "yes" only costs the old, slower path — never a lost waybill.
+  assert.equal(waybillSignal('ДОГОВОР поставки № 5 от 01.01.2025').looksLikeWaybill, true);
 });
