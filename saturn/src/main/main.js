@@ -608,11 +608,17 @@ ipcMain.handle('compress:run', async (_e, { filePaths, preset, outputDir }) => {
 });
 
 // ---------------------------------------------------------------------------
-// IPC: Сортировка накладных (filename-based filing into contract folders)
+// IPC: Сортировка накладных
+//
+// Files are filed into contract folders that ALREADY EXIST in the destination —
+// the tool never creates one. Those folders are named by hand on a shared drive
+// ("425. Договор № ST-425-25-K от 25.07.2025 E-OIL"), a form the app cannot
+// reproduce from a file name, so creating a folder could only ever produce a
+// second, wrong-looking set beside the real ones. Anything without a matching
+// folder is left for a human instead, in «неотсортированные».
 // ---------------------------------------------------------------------------
 
 const UNSORTED_DIR = 'неотсортированные'; // subfolder in the SOURCE for problems
-const TTN_SUBDIR = 'ТТН';                  // subfolder inside each contract folder
 
 /** Move a file, falling back to copy+unlink when src/dst are on different
  *  drives (fs.rename throws EXDEV across volumes — common on Windows). */
@@ -627,11 +633,6 @@ async function moveFile(src, dst) {
       throw err;
     }
   }
-}
-
-/** Keep folder names safe: never let a parsed contract escape into a path. */
-function safeFolderName(name) {
-  return String(name || '').replace(/[\\/:*?"<>|]/g, '-').replace(/\.+$/, '').trim() || 'NA';
 }
 
 /** Top-level *.pdf file names in a directory (subfolders are ignored, so an
@@ -664,12 +665,12 @@ async function findTtnSubdir(folderPath, cache) {
 }
 
 /**
- * Resolve where each waybill goes when matching AGAINST existing contract
- * folders in `destDir` (the "искать, а не создавать" mode). Read-only: it scans
- * `destDir` once, matches by numeric core (see matchExistingFolders.js), and
- * finds each matched folder's «ТТН» subfolder (cached). Returns matched groups
- * plus an `unsorted` list that already folds in the NA/format problems, the
- * AMBIGUOUS / NOT FOUND / NO_TTN_FOLDER cases with human-readable reasons.
+ * Resolve which EXISTING contract folder in `destDir` each waybill belongs to.
+ * Read-only: it scans `destDir` once, matches by numeric core (see
+ * matchExistingFolders.js), and finds each matched folder's «ТТН» subfolder
+ * (cached). Returns matched groups plus an `unsorted` list that already folds in
+ * the NA/format problems and the AMBIGUOUS / NOT FOUND / NO_TTN_FOLDER cases
+ * with human-readable reasons.
  */
 async function resolveMatchPlan(destDir, plan) {
   const folders = await listSubdirs(destDir);
@@ -707,76 +708,19 @@ async function resolveMatchPlan(destDir, plan) {
     unsorted.push({ fileName: nf.fileName, reason: `папка договора не найдена — ${code}${hint}` });
   }
 
-  return { groups: [...groupsByPath.values()], unsorted };
+  return { groups: [...groupsByPath.values()], unsorted, destSubdirCount: folders.length };
 }
 
 /**
- * Build the full sort plan for the UI: where each file would go, with on-disk
- * collision resolution (so the report shows the real target name, e.g. _2.pdf).
- * Read-only — safe to run as a dry run.
+ * Build the full sort plan for the UI: which existing contract folder each file
+ * would go to, with on-disk collision resolution (so the report shows the real
+ * target name, e.g. _2.pdf). Read-only — safe to run as a dry run.
  */
-async function buildSortReport(sourceDir, destDir, matchExisting) {
+async function buildSortReport(sourceDir, destDir) {
   const names = await listPdfNames(sourceDir);
   const plan = buildSortPlan(names);
-
-  if (matchExisting) return buildMatchReport(sourceDir, destDir, plan);
-
-  const groups = [];
-  let conflicts = 0;
-  for (const g of plan.groups) {
-    const folder = safeFolderName(g.folder);
-    const targetDir = path.join(destDir, folder, TTN_SUBDIR);
-    const used = new Set();
-    const files = [];
-    for (const it of g.items) {
-      // eslint-disable-next-line no-await-in-loop
-      const finalName = await uniqueName(targetDir, it.fileName, used);
-      const conflict = finalName !== it.fileName;
-      if (conflict) conflicts += 1;
-      files.push({
-        fileName: it.fileName, nakladnaya: it.nakladnaya, dogovor: it.dogovor,
-        finalName, conflict,
-      });
-    }
-    groups.push({ folder, targetRel: path.join(folder, TTN_SUBDIR), files });
-  }
-
-  const toSort = groups.reduce((n, g) => n + g.files.length, 0);
-
-  // How much of this plan means CREATING folders in the destination. Pointing
-  // the create-mode at a share that already holds hand-named contract folders
-  // would quietly add a second, parallel set of them — so we count what already
-  // exists and let the UI warn before anything is moved.
-  let destSubdirCount = 0;
-  let existingFolders = 0;
-  try {
-    const existing = new Set((await listSubdirs(destDir)).map((d) => d.name));
-    destSubdirCount = existing.size;
-    existingFolders = groups.filter((g) => existing.has(g.folder)).length;
-  } catch (_) { /* unreadable destination — the move itself will report it */ }
-
-  return {
-    sourceDir, destDir,
-    totalPdf: plan.totalPdf,
-    toSort,
-    problems: plan.unsorted.length,
-    folderCount: groups.length,
-    conflicts,
-    groups,
-    unsorted: plan.unsorted,
-    newFolders: groups.length - existingFolders,
-    existingFolders,
-    destSubdirCount,
-    // The destination is clearly already organised into folders, yet not one of
-    // them matches what we would create — the user almost certainly wants the
-    // "match existing folders" mode instead.
-    suggestMatch: destSubdirCount >= 5 && existingFolders === 0 && groups.length > 0,
-  };
-}
-
-/** Read-only report for the match-existing-folders mode (dry run). */
-async function buildMatchReport(sourceDir, destDir, plan) {
   const rp = await resolveMatchPlan(destDir, plan);
+
   const groups = [];
   let conflicts = 0;
   for (const g of rp.groups) {
@@ -787,26 +731,29 @@ async function buildMatchReport(sourceDir, destDir, plan) {
       const finalName = await uniqueName(g.ttnDir, it.fileName, used);
       const conflict = finalName !== it.fileName;
       if (conflict) conflicts += 1;
-      files.push({ fileName: it.fileName, nakladnaya: '', dogovor: it.dogovor, finalName, conflict });
+      files.push({ fileName: it.fileName, dogovor: it.dogovor, finalName, conflict });
     }
     groups.push({ folder: g.folderName, targetRel: g.targetRel, files });
   }
+
   const toSort = groups.reduce((n, g) => n + g.files.length, 0);
   return {
-    matchExisting: true,
     sourceDir, destDir,
     totalPdf: plan.totalPdf,
     toSort,
     problems: rp.unsorted.length,
     folderCount: groups.length,
+    // How many contract folders the destination holds at all — makes it obvious
+    // when the wrong folder was picked (0 folders ⇒ nothing can ever match).
+    destSubdirCount: rp.destSubdirCount,
     conflicts,
     groups,
     unsorted: rp.unsorted,
   };
 }
 
-/** Actually move files into existing folders' «ТТН» subfolders (apply). */
-async function applyMatch(sourceDir, destDir, plan) {
+/** Move the files into the matched folders' «ТТН» subfolders (apply). */
+async function applySort(sourceDir, destDir, plan) {
   const rp = await resolveMatchPlan(destDir, plan);
   const results = [];
   let moved = 0;
@@ -870,70 +817,19 @@ ipcMain.handle('sort:pickDest', async () => {
 });
 
 // Dry run: compute the plan without touching disk.
-ipcMain.handle('sort:plan', async (_e, { sourceDir, destDir, matchExisting }) => {
+ipcMain.handle('sort:plan', async (_e, { sourceDir, destDir }) => {
   if (!sourceDir) throw new Error('Не выбрана папка с накладными.');
   if (!destDir) throw new Error('Не выбрана папка назначения.');
-  return buildSortReport(sourceDir, destDir, !!matchExisting);
+  return buildSortReport(sourceDir, destDir);
 });
 
 // Apply: actually move the files. Re-plans against the current disk state so
 // the run is correct even if files changed since the dry run.
-ipcMain.handle('sort:apply', async (_e, { sourceDir, destDir, matchExisting }) => {
+ipcMain.handle('sort:apply', async (_e, { sourceDir, destDir }) => {
   if (!sourceDir) throw new Error('Не выбрана папка с накладными.');
   if (!destDir) throw new Error('Не выбрана папка назначения.');
-
-  const names = await listPdfNames(sourceDir);
-  const plan = buildSortPlan(names);
-  if (matchExisting) return applyMatch(sourceDir, destDir, plan);
-
-  const results = [];
-  let moved = 0;
-  let failed = 0;
-
-  for (const g of plan.groups) {
-    const folder = safeFolderName(g.folder);
-    const targetDir = path.join(destDir, folder, TTN_SUBDIR);
-    // eslint-disable-next-line no-await-in-loop
-    await fs.mkdir(targetDir, { recursive: true });
-    const used = new Set();
-    for (const it of g.items) {
-      // eslint-disable-next-line no-await-in-loop
-      const finalName = await uniqueName(targetDir, it.fileName, used);
-      const to = path.join(targetDir, finalName);
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await moveFile(path.join(sourceDir, it.fileName), to);
-        moved += 1;
-        results.push({ fileName: it.fileName, folder, finalName, ok: true });
-      } catch (err) {
-        failed += 1;
-        results.push({ fileName: it.fileName, folder, ok: false, error: String(err.message || err) });
-      }
-    }
-  }
-
-  // Problem files → неотсортированные inside the SOURCE folder.
-  let unsortedMoved = 0;
-  if (plan.unsorted.length) {
-    const unsortedDir = path.join(sourceDir, UNSORTED_DIR);
-    await fs.mkdir(unsortedDir, { recursive: true });
-    const used = new Set();
-    for (const u of plan.unsorted) {
-      // eslint-disable-next-line no-await-in-loop
-      const finalName = await uniqueName(unsortedDir, u.fileName, used);
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await moveFile(path.join(sourceDir, u.fileName), path.join(unsortedDir, finalName));
-        unsortedMoved += 1;
-        results.push({ fileName: u.fileName, folder: UNSORTED_DIR, finalName, ok: true });
-      } catch (err) {
-        failed += 1;
-        results.push({ fileName: u.fileName, folder: UNSORTED_DIR, ok: false, error: String(err.message || err) });
-      }
-    }
-  }
-
-  return { moved, failed, unsortedMoved, unsortedDir: path.join(sourceDir, UNSORTED_DIR), results };
+  const plan = buildSortPlan(await listPdfNames(sourceDir));
+  return applySort(sourceDir, destDir, plan);
 });
 
 // ---------------------------------------------------------------------------

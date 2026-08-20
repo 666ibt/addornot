@@ -1137,31 +1137,8 @@ function sortReset() {
   $('sortSrcLabel').classList.add('muted');
   $('sortDestLabel').textContent = 'не выбрана';
   $('sortDestLabel').classList.add('muted');
-  $('sortMatchExisting').checked = false;
   $('sortReport').classList.add('hidden');
   $('sortReport').innerHTML = '';
-  sortUpdateHint();
-  sortUpdateButtons();
-}
-
-// The hint below the pickers reflects the current mode.
-function sortUpdateHint() {
-  const match = $('sortMatchExisting').checked;
-  $('sortHint').innerHTML = match
-    ? 'Режим сопоставления: приложение ищет уже существующую папку договора в папке назначения '
-      + '(по числовому коду, напр. <code>425-25</code>) и кладёт файл в её подпапку <code>ТТН</code>. '
-      + 'Новые папки НЕ создаются. Файлы <code>-АЗС</code> ищутся только среди папок с «АЗС». '
-      + 'Ненайденные, неоднозначные и без подпапки ТТН уходят в <code>{источник}/неотсортированные/</code>.'
-    : 'Файлы вида <code>{накладная}_{договор}.pdf</code> раскладываются по папкам договоров: '
-      + '<code>{назначение}/{договор}/ТТН/</code>. Проблемные (договор или накладная = NA) уходят '
-      + 'в <code>{источник}/неотсортированные/</code>. Сначала сделайте пробный прогон — ничего не двигается.';
-}
-
-// Toggling the mode invalidates any shown plan (targets differ per mode).
-function sortOnModeChange() {
-  sortState.report = null;
-  $('sortReport').classList.add('hidden');
-  sortUpdateHint();
   sortUpdateButtons();
 }
 
@@ -1201,10 +1178,7 @@ async function sortDryRun() {
   sortUpdateButtons();
   showProcLoader();
   try {
-    const report = await api.sortPlan({
-      sourceDir: sortState.source, destDir: sortState.dest,
-      matchExisting: $('sortMatchExisting').checked,
-    });
+    const report = await api.sortPlan({ sourceDir: sortState.source, destDir: sortState.dest });
     sortState.report = report;
     renderSortReport(report, false);
     toast(`План готов: к сортировке ${report.toSort}, проблемных ${report.problems}.`, 'ok');
@@ -1225,10 +1199,7 @@ async function sortApply() {
   sortUpdateButtons();
   showProcLoader();
   try {
-    const res = await api.sortApply({
-      sourceDir: sortState.source, destDir: sortState.dest,
-      matchExisting: $('sortMatchExisting').checked,
-    });
+    const res = await api.sortApply({ sourceDir: sortState.source, destDir: sortState.dest });
     applySortResult(res);
     const msg = `Перемещено ${res.moved}` +
       (res.unsortedMoved ? `, в «неотсортированные» ${res.unsortedMoved}` : '') +
@@ -1278,35 +1249,32 @@ function renderSortReport(report, applied) {
   const wrap = $('sortReport');
   const parts = [];
 
-  const match = !!report.matchExisting;
   parts.push(`<div class="sort-stats">
     ${sortStat('всего PDF', report.totalPdf)}
-    ${sortStat(match ? 'сопоставлено' : 'к сортировке', report.toSort, 'good')}
-    ${sortStat(match ? 'папок найдено' : 'папок договоров', report.folderCount)}
-    ${match ? '' : sortStat('будет создано папок', report.newFolders ?? report.folderCount,
-      (report.newFolders ?? report.folderCount) ? 'warn' : '')}
-    ${sortStat(match ? 'не сопоставлено' : 'проблемных', report.problems, report.problems ? 'warn' : '')}
+    ${sortStat('сопоставлено', report.toSort, 'good')}
+    ${sortStat('папок найдено', report.folderCount)}
+    ${sortStat('не сопоставлено', report.problems, report.problems ? 'warn' : '')}
     ${sortStat('совпадений имён', report.conflicts, report.conflicts ? 'warn' : '')}
   </div>`);
 
-  if (match) {
-    parts.push('<p class="hint" style="margin:0 0 12px">Режим сопоставления с существующими папками: '
-      + 'новые папки не создаются, файлы кладутся в подпапку «ТТН» найденной папки договора.</p>');
-  } else if (report.suggestMatch) {
-    // Create-mode aimed at a destination that is already organised by hand:
-    // continuing would add a second, parallel set of contract folders.
-    parts.push(`<div class="sort-warn">⚠ В папке назначения уже есть
-      <b>${report.destSubdirCount}</b> ${pluralFolders(report.destSubdirCount)}, но ни одна не совпадает
-      с теми, что будут созданы. Рядом с ними будет создано ещё
-      <b>${report.newFolders}</b> ${pluralFolders(report.newFolders)}.<br>
-      Если папки договоров там уже заведены вручную — включите галочку
-      «Папки договоров уже существуют…» и сделайте пробный прогон заново.</div>`);
+  // Nothing to match against at all — almost always the wrong destination.
+  if (!report.destSubdirCount) {
+    parts.push('<div class="sort-warn">⚠ В выбранной папке назначения нет ни одной подпапки. '
+      + 'Файлы раскладываются только по <b>уже существующим</b> папкам договоров — похоже, '
+      + 'выбрана не та папка.</div>');
+  } else if (report.folderCount === 0 && report.totalPdf > 0) {
+    parts.push(`<div class="sort-warn">⚠ В папке назначения
+      <b>${report.destSubdirCount}</b> ${pluralFolders(report.destSubdirCount)}, но ни одна не подошла
+      ни к одному файлу. Проверьте, та ли это папка (напр. нужный год), и посмотрите причины ниже.</div>`);
+  } else {
+    parts.push('<p class="hint" style="margin:0 0 12px">Файлы кладутся в подпапку «ТТН» '
+      + 'уже существующих папок договоров. Новые папки не создаются.</p>');
   }
 
   parts.push(`<div class="sort-done ${applied ? '' : 'hidden'}"></div>`);
 
   if (report.groups.length) {
-    parts.push(`<h3 class="sort-h">${match ? 'В существующие папки договоров' : 'По договорам'}</h3>`);
+    parts.push('<h3 class="sort-h">В существующие папки договоров</h3>');
     for (const g of report.groups) {
       const rows = g.files.map((f) => `
         <div class="sort-file" data-file="${escapeHtml(f.fileName)}" data-folder="${escapeHtml(g.folder)}">
@@ -1468,7 +1436,6 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Сортировка накладных
   $('sortSrcBtn').addEventListener('click', sortPickSource);
-  $('sortMatchExisting').addEventListener('change', sortOnModeChange);
   $('sortDestBtn').addEventListener('click', sortPickDest);
   $('sortDryBtn').addEventListener('click', sortDryRun);
   $('sortApplyBtn').addEventListener('click', sortApply);
