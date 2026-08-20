@@ -703,6 +703,12 @@ function pluralFiles(n) {
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return 'файла';
   return 'файлов';
 }
+function pluralFolders(n) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return 'папка';
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return 'папки';
+  return 'папок';
+}
 function updateResultCount() {
   const n = state.pages.size;
   const el = $('resultCount');
@@ -1277,6 +1283,8 @@ function renderSortReport(report, applied) {
     ${sortStat('всего PDF', report.totalPdf)}
     ${sortStat(match ? 'сопоставлено' : 'к сортировке', report.toSort, 'good')}
     ${sortStat(match ? 'папок найдено' : 'папок договоров', report.folderCount)}
+    ${match ? '' : sortStat('будет создано папок', report.newFolders ?? report.folderCount,
+      (report.newFolders ?? report.folderCount) ? 'warn' : '')}
     ${sortStat(match ? 'не сопоставлено' : 'проблемных', report.problems, report.problems ? 'warn' : '')}
     ${sortStat('совпадений имён', report.conflicts, report.conflicts ? 'warn' : '')}
   </div>`);
@@ -1284,6 +1292,15 @@ function renderSortReport(report, applied) {
   if (match) {
     parts.push('<p class="hint" style="margin:0 0 12px">Режим сопоставления с существующими папками: '
       + 'новые папки не создаются, файлы кладутся в подпапку «ТТН» найденной папки договора.</p>');
+  } else if (report.suggestMatch) {
+    // Create-mode aimed at a destination that is already organised by hand:
+    // continuing would add a second, parallel set of contract folders.
+    parts.push(`<div class="sort-warn">⚠ В папке назначения уже есть
+      <b>${report.destSubdirCount}</b> ${pluralFolders(report.destSubdirCount)}, но ни одна не совпадает
+      с теми, что будут созданы. Рядом с ними будет создано ещё
+      <b>${report.newFolders}</b> ${pluralFolders(report.newFolders)}.<br>
+      Если папки договоров там уже заведены вручную — включите галочку
+      «Папки договоров уже существуют…» и сделайте пробный прогон заново.</div>`);
   }
 
   parts.push(`<div class="sort-done ${applied ? '' : 'hidden'}"></div>`);

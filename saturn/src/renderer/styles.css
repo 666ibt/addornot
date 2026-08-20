@@ -274,6 +274,10 @@ button.ghost:hover { border-color: #3a4552; }
 
 .sort-done { background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.4); color: var(--green);
   border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; }
+/* Create-mode aimed at an already-organised destination */
+.sort-warn { background: rgba(251,191,36,.10); border: 1px solid rgba(251,191,36,.45); color: var(--amber);
+  border-radius: 10px; padding: 11px 14px; font-size: 13px; line-height: 1.6; margin-bottom: 14px; }
+.sort-warn b { color: var(--text); }
 
 .sort-h { font-size: 13px; color: var(--muted); margin: 6px 0 10px; font-weight: 600; }
 .sort-group { border: 1px solid var(--border); border-radius: 12px; margin-bottom: 12px; overflow: hidden; }

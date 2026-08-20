@@ -742,6 +742,19 @@ async function buildSortReport(sourceDir, destDir, matchExisting) {
   }
 
   const toSort = groups.reduce((n, g) => n + g.files.length, 0);
+
+  // How much of this plan means CREATING folders in the destination. Pointing
+  // the create-mode at a share that already holds hand-named contract folders
+  // would quietly add a second, parallel set of them — so we count what already
+  // exists and let the UI warn before anything is moved.
+  let destSubdirCount = 0;
+  let existingFolders = 0;
+  try {
+    const existing = new Set((await listSubdirs(destDir)).map((d) => d.name));
+    destSubdirCount = existing.size;
+    existingFolders = groups.filter((g) => existing.has(g.folder)).length;
+  } catch (_) { /* unreadable destination — the move itself will report it */ }
+
   return {
     sourceDir, destDir,
     totalPdf: plan.totalPdf,
@@ -751,6 +764,13 @@ async function buildSortReport(sourceDir, destDir, matchExisting) {
     conflicts,
     groups,
     unsorted: plan.unsorted,
+    newFolders: groups.length - existingFolders,
+    existingFolders,
+    destSubdirCount,
+    // The destination is clearly already organised into folders, yet not one of
+    // them matches what we would create — the user almost certainly wants the
+    // "match existing folders" mode instead.
+    suggestMatch: destSubdirCount >= 5 && existingFolders === 0 && groups.length > 0,
   };
 }
 
