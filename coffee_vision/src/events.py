@@ -39,8 +39,10 @@ CREATE TABLE IF NOT EXISTS events (
     shift       INTEGER             -- 0 = 00-08, 1 = 08-16, 2 = 16-24
 );
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
-CREATE INDEX IF NOT EXISTS idx_events_shift ON events(day, shift);
 """
+# Created only after _migrate() has ensured day/shift exist — an older events.db
+# has neither column, and indexing a missing column is an error.
+SHIFT_INDEX = "CREATE INDEX IF NOT EXISTS idx_events_shift ON events(day, shift);"
 
 
 @dataclass
@@ -76,6 +78,8 @@ class EventStore:
                           ("shift", "INTEGER")]:
             if col not in have:
                 self.conn.execute(f"ALTER TABLE events ADD COLUMN {col} {decl}")
+        # safe now that day/shift are guaranteed to exist
+        self.conn.execute(SHIFT_INDEX)
 
     def log(self, event: Event) -> int:
         from .shifts import shift_key  # local import avoids a cycle at import time
