@@ -25,6 +25,7 @@ from .activity import (
 )
 from .detector import Detection, ProductDetector
 from .events import Event, EventStore
+from .line_counter import LineCounter
 
 # BGR color per activity.
 _ACT_COLOR = {
@@ -42,6 +43,7 @@ class FrameResult:
     detections: List[Detection]
     activity: ActivityFrameResult
     active_alerts: List[str]
+    sales: Optional[dict] = None   # label -> count since start (line counter)
 
 
 class Pipeline:
@@ -52,6 +54,7 @@ class Pipeline:
         store: Optional[EventStore] = None,
         fps: float = 15.0,
         phone_alert_seconds: float = 45.0,
+        line_counter: Optional[LineCounter] = None,
     ) -> None:
         self.detector = detector if detector is not None else ProductDetector()
         self.recognizer = (
@@ -59,6 +62,8 @@ class Pipeline:
             else RuleBasedActivityRecognizer(fps=fps, phone_alert_seconds=phone_alert_seconds)
         )
         self.store = store
+        # Optional: count products crossing the dispensing line.
+        self.line_counter = line_counter
         self._seen_obj_tracks: set = set()
 
     def process(self, frame_index: int, video_ts: float, frame_bgr: np.ndarray):
@@ -68,8 +73,18 @@ class Pipeline:
 
         result = self.recognizer.update(frame_index, video_ts, persons, objects)
 
+        # -- dispensing line: products handed out --
+        crossings = []
+        if self.line_counter is not None:
+            h, w = frame_bgr.shape[:2]
+            crossings = self.line_counter.update(objects, video_ts, (w, h))
+
         # -- events --
         if self.store is not None:
+            for c in crossings:
+                self.store.log(Event("sale", c.label, track_id=c.track_id,
+                                     video_ts=video_ts,
+                                     detail=f"crossed line (dir {c.direction})"))
             for d in detections:
                 if d.track_id is not None and d.track_id not in self._seen_obj_tracks:
                     self._seen_obj_tracks.add(d.track_id)
@@ -83,7 +98,8 @@ class Pipeline:
         active_alerts = [f"#{p.track_id} phone {int(p.phone_seconds)}s"
                          for p in result.persons if p.phone_alert]
         annotated = self._draw(frame_bgr, objects, result, active_alerts)
-        return annotated, FrameResult(detections, result, active_alerts)
+        sales = dict(self.line_counter.counts) if self.line_counter else None
+        return annotated, FrameResult(detections, result, active_alerts, sales)
 
     # -- drawing ----------------------------------------------------------
     def _draw(self, frame, objects, result: ActivityFrameResult, alerts):
@@ -115,6 +131,20 @@ class Pipeline:
                 pc = (0, 0, 255) if p.phone_alert else (60, 60, 235)
                 cv2.putText(out, pt, (x1 + 2, y2 + 15),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, pc, 2, cv2.LINE_AA)
+
+        # dispensing line + running product count
+        if self.line_counter is not None:
+            h, w = out.shape[:2]
+            (ax, ay), (bx, by) = self.line_counter._points_px((w, h))
+            cv2.line(out, (int(ax), int(ay)), (int(bx), int(by)), (0, 255, 255), 2)
+            cv2.putText(out, "DISPENSE LINE", (int(ax) + 6, int(ay) - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
+            sold = "  ".join(f"{k}:{v}" for k, v in
+                             sorted(self.line_counter.counts.items(), key=lambda x: -x[1])[:4])
+            bar_y = out.shape[0] - 8
+            cv2.rectangle(out, (0, out.shape[0] - 28), (out.shape[1], out.shape[0]), (0, 0, 0), -1)
+            cv2.putText(out, f"SOLD {self.line_counter.total}   {sold}",
+                        (8, bar_y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1, cv2.LINE_AA)
 
         # top banner
         cv2.rectangle(out, (0, 0), (out.shape[1], 30), (0, 0, 0), -1)

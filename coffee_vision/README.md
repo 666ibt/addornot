@@ -1,9 +1,17 @@
-# Coffee Vision — Worker Activity Monitor ☕👁️
+# Coffee Vision — Worker Activity & Product Counting ☕👁️
 
-A desktop CV demo that watches a coffee-shop camera and reports **what each
-worker is doing** — and flags anyone **on their phone longer than a threshold**
-(default 45 s) while on shift. Single Streamlit app, SQLite event log, no
-training required to run today.
+Watches a coffee-shop camera (webcam, video file, or **Hikvision/Dahua IP camera
+over RTSP**) and reports:
+
+* **what each worker is doing** — and flags anyone **on their phone longer than a
+  threshold** (default 45 s) while on shift;
+* **how many products were handed out** — counted when they cross a virtual
+  **dispensing line**, per product type;
+* **end-of-shift summaries** — grouped into 3 shifts/day, stored in SQLite and
+  optionally pushed to **Telegram**.
+
+Runs as a Streamlit app for live viewing, or as a headless **24/7 service**. No
+model training required to start.
 
 ## What it detects
 
@@ -65,6 +73,61 @@ python -m scripts.run_on_video --source incoming/clip.mp4 --max-seconds 60
 # writes outputs/<name>_activity.mp4 + prints object / activity / alert summaries
 # useful flags: --start-seconds N  --conf 0.2  --phone-alert-seconds 45
 ```
+
+## IP camera (Hikvision / Dahua) 📹
+
+**1. Test the connection first:**
+```bash
+python -m scripts.test_camera --host 192.168.0.135 --password SECRET
+python -m scripts.test_camera --host 192.168.0.135 --password SECRET --vendor dahua
+```
+It reports resolution/FPS, measures the real frame rate, and saves a snapshot to
+`outputs/camera_test.jpg`. URLs are built for you:
+
+| Vendor | URL |
+|---|---|
+| Hikvision | `rtsp://user:pass@IP:554/Streaming/Channels/102` |
+| Dahua | `rtsp://user:pass@IP:554/cam/realmonitor?channel=1&subtype=1` |
+
+Channel **101 / subtype 0** = main stream (full quality, heavy CPU);
+**102 / subtype 1** = **substream — use this for analytics**, same detections at a
+fraction of the cost.
+
+**2. Place the dispensing line** (where a finished drink leaves the bar):
+```bash
+python -m scripts.setup_line --url "rtsp://..."          # click 2 points
+python -m scripts.setup_line --source clip.mp4 --coords 0.3,0.62,0.75,0.62   # no GUI
+```
+Saved to `config/line.json`. It can run **diagonally** along the real pickup edge,
+and `--direction positive/negative` counts only the outward direction, so pulling
+a cup back doesn't add a sale. You can also set it live with the sliders in the
+Streamlit sidebar.
+
+**3. Run the 24/7 service** (headless, auto-reconnects, reports per shift):
+```bash
+python -m scripts.run_service --url "rtsp://admin:PASS@192.168.0.135:554/Streaming/Channels/102"
+python -m scripts.run_service --source clip.mp4 --once      # test on a file
+python -m scripts.run_service --report-now                  # print/send current shift report
+```
+`--target-fps 6` (default) throttles analytics to keep CPU sane — detection is the
+expensive part, and 6 fps is plenty for counting cups and watching people.
+
+## Shifts & Telegram reports 📤
+
+Shifts are **00:00–08:00**, **08:00–16:00**, **16:00–24:00**. Every event is
+stamped with its day + shift, so reports are a database query and survive a
+restart. At each shift change the service sends a summary (products by type,
+total, activity counts, phone alerts).
+
+Configure Telegram — **never hard-code the token**:
+```bash
+setx TELEGRAM_BOT_TOKEN "123456:ABC..."      # Windows
+setx TELEGRAM_CHAT_ID   "987654321"
+```
+or `config/telegram.json`: `{"bot_token": "...", "chat_id": "..."}`.
+Get the token from **@BotFather**; get your chat id by messaging your bot once and
+opening `https://api.telegram.org/bot<TOKEN>/getUpdates`.
+Without it everything still runs — reports are just printed to the console.
 
 ## ⚠️ Honest limits — read this before trusting the numbers
 
@@ -138,18 +201,26 @@ coffee_vision/
 ├── app.py                       # Streamlit worker-activity monitor
 ├── requirements.txt
 ├── data/                        # fixtures / your sample.mp4 (git-ignored)
-├── tests/test_activity.py
+├── config/                      # line.json, telegram.json (git-ignored)
+├── tests/
+│   ├── test_activity.py
+│   └── test_line_counter.py     # line crossing + shift logic
 ├── scripts/
+│   ├── run_service.py           # 24/7 headless service + shift reports
+│   ├── test_camera.py           # verify an RTSP camera before wiring it in
+│   ├── setup_line.py            # place the dispensing line
 │   ├── run_on_video.py          # run pipeline on a file -> annotated mp4 + stats
-│   ├── detect_demo.py           # bare detector smoke test
-│   ├── make_synthetic.py        # shapes crash-test fixture
-│   └── make_motion_fixture.py   # public-image motion fixture
+│   ├── extract_frames.py / prelabel.py / label_web.py / train.py   # training loop
+│   └── make_synthetic.py / make_motion_fixture.py                  # test fixtures
 └── src/
-    ├── detector.py              # YOLO-World (+ COCO fallback) + ByteTrack
+    ├── detector.py              # YOLO-World (+ COCO fallback / custom) + ByteTrack
     ├── activity.py              # per-worker activity rules + phone alert
-    ├── events.py                # SQLite event store
+    ├── line_counter.py          # virtual dispensing line -> product counts
+    ├── shifts.py                # 3 shifts/day + change detection
+    ├── notifier.py              # Telegram reports (stdlib only)
+    ├── events.py                # SQLite event store (day/shift stamped)
     ├── pipeline.py              # per-frame orchestration + overlay
-    └── video_source.py          # webcam / file frame iterator
+    └── video_source.py          # webcam / file / RTSP with auto-reconnect
 ```
 
 ## Notes / assumptions

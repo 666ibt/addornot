@@ -31,8 +31,12 @@ Writes YOLO labels + `training/dataset/data.yaml`. The auto-labeler is good at
 `person`/`cup`, weak at `phone` — you'll **add most phone boxes yourself**.
 
 Classes live in `training/classes.py` (`phone, cup, food, person`). The names
-match the activity rules, so a trained model plugs straight in. Add classes at
-the **end** to keep existing label indices valid.
+match **both** the activity rules and the dispensing-line product classes, so a
+trained model plugs straight into activity detection *and* product counting. Add
+classes at the **end** to keep existing label indices valid.
+
+💡 Fine-tuning helps counting too: a detector trained on your camera holds a cup's
+track more reliably as it's carried, which is exactly what the line counter needs.
 
 ### 3. Correct the labels
 

@@ -6,6 +6,10 @@ Event kinds in one table:
     the activity that just ended, and their track id).
   * ``alert``    — a derived alert, e.g. ``phone_on_workplace`` (worker on their
     phone longer than the threshold), with the phone-use duration.
+  * ``sale``     — a product crossed the dispensing line (one per track id).
+
+Every row also carries the **date and shift** it happened in, so end-of-shift
+reports are a simple query and survive a restart.
 
 Schema is created on first use; no migrations, no external DB.
 """
@@ -15,6 +19,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -29,9 +34,12 @@ CREATE TABLE IF NOT EXISTS events (
     confidence  REAL,
     duration    REAL,               -- seconds (activity length / phone-use length)
     detail      TEXT,
-    session_id  TEXT
+    session_id  TEXT,
+    day         TEXT,               -- 'YYYY-MM-DD' the event happened on
+    shift       INTEGER             -- 0 = 00-08, 1 = 08-16, 2 = 16-24
 );
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
+CREATE INDEX IF NOT EXISTS idx_events_shift ON events(day, shift);
 """
 
 
@@ -64,23 +72,39 @@ class EventStore:
         have = {r["name"] for r in self.conn.execute("PRAGMA table_info(events)")}
         for col, decl in [("track_id", "INTEGER"), ("duration", "REAL"),
                           ("detail", "TEXT"), ("video_ts", "REAL"),
-                          ("confidence", "REAL")]:
+                          ("confidence", "REAL"), ("day", "TEXT"),
+                          ("shift", "INTEGER")]:
             if col not in have:
                 self.conn.execute(f"ALTER TABLE events ADD COLUMN {col} {decl}")
 
     def log(self, event: Event) -> int:
+        from .shifts import shift_key  # local import avoids a cycle at import time
+
         ts = event.ts or time.time()
+        day, shift = shift_key(datetime.fromtimestamp(ts))
         cur = self.conn.execute(
             """INSERT INTO events
-               (ts, video_ts, event_type, label, track_id, confidence, duration, detail, session_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (ts, video_ts, event_type, label, track_id, confidence, duration,
+                detail, session_id, day, shift)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 ts, event.video_ts, event.event_type, event.label, event.track_id,
                 event.confidence, event.duration, event.detail, self.session_id,
+                day, shift,
             ),
         )
         self.conn.commit()
         return int(cur.lastrowid)
+
+    def counts_for_shift(self, day: str, shift: int, event_type: str = "sale"):
+        """[(label, n), ...] for one shift — what an end-of-shift report needs."""
+        rows = self.conn.execute(
+            """SELECT label, COUNT(*) AS n FROM events
+               WHERE event_type=? AND day=? AND shift=?
+               GROUP BY label ORDER BY n DESC""",
+            (event_type, day, shift),
+        ).fetchall()
+        return [(r["label"], r["n"]) for r in rows]
 
     def recent(self, limit: int = 50, session_only: bool = True,
                event_types: Optional[List[str]] = None) -> List[sqlite3.Row]:

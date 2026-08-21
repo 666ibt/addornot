@@ -33,3 +33,7 @@ models/active.txt
 # user-supplied videos and generated run outputs
 incoming/
 outputs/
+
+# local camera/line/telegram config (may contain credentials)
+config/telegram.json
+config/line.json
