@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';" />
+    <title>Saturn</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- Startup loader: iridescent Saturn logo shown until the UI is ready. -->
+    <div id="splash" class="splash">
+      <div class="splash-inner">
+        <span class="splash-logo">
+          <svg width="140" height="140" viewBox="0 0 200 200" fill="none"
+               xmlns="http://www.w3.org/2000/svg" aria-label="Загрузка Saturn">
+            <defs>
+              <!-- Planet fill: slowly cycles through the app palette -->
+              <linearGradient id="spPlanet" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#55b0ec">
+                  <animate attributeName="stop-color"
+                    values="#55b0ec;#8bc53f;#2f8ed6;#55b0ec" dur="3.6s" repeatCount="indefinite"/>
+                </stop>
+                <stop offset="1" stop-color="#2f8ed6">
+                  <animate attributeName="stop-color"
+                    values="#2f8ed6;#55b0ec;#8bc53f;#2f8ed6" dur="3.6s" repeatCount="indefinite"/>
+                </stop>
+              </linearGradient>
+              <!-- Ring: colours flow around it (rotating gradient axis) for the
+                   "переливающийся" shimmer, plus a gentle stop-colour cycle. -->
+              <linearGradient id="spRing" gradientUnits="userSpaceOnUse"
+                              x1="-95" y1="-95" x2="95" y2="95">
+                <stop offset="0" stop-color="#8bc53f">
+                  <animate attributeName="stop-color"
+                    values="#8bc53f;#55b0ec;#2f8ed6;#8bc53f" dur="3s" repeatCount="indefinite"/>
+                </stop>
+                <stop offset=".5" stop-color="#55b0ec">
+                  <animate attributeName="stop-color"
+                    values="#55b0ec;#2f8ed6;#8bc53f;#55b0ec" dur="3s" repeatCount="indefinite"/>
+                </stop>
+                <stop offset="1" stop-color="#2f8ed6">
+                  <animate attributeName="stop-color"
+                    values="#2f8ed6;#8bc53f;#55b0ec;#2f8ed6" dur="3s" repeatCount="indefinite"/>
+                </stop>
+                <animateTransform attributeName="gradientTransform" type="rotate"
+                  from="0 0 0" to="360 0 0" dur="4.5s" repeatCount="indefinite"/>
+              </linearGradient>
+              <radialGradient id="spGlow" cx=".5" cy=".5" r=".5">
+                <stop offset="0" stop-color="#3b82f6" stop-opacity=".38"/>
+                <stop offset="1" stop-color="#3b82f6" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+            <circle class="splash-glow" cx="100" cy="100" r="96" fill="url(#spGlow)"/>
+            <g transform="translate(100 100)">
+              <g transform="rotate(-22)">
+                <ellipse cx="0" cy="0" rx="87" ry="34" fill="none"
+                         stroke="url(#spRing)" stroke-width="12.3"/>
+              </g>
+              <circle cx="0" cy="0" r="43.7" fill="url(#spPlanet)"/>
+            </g>
+          </svg>
+        </span>
+        <div class="splash-word">SATURN</div>
+        <div class="splash-hint">Загрузка…</div>
+      </div>
+    </div>
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo" id="appLogo">
+          <!-- Saturn mark (from the provided logo.svg) -->
+          <svg width="46" height="46" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Saturn">
+            <defs>
+              <linearGradient id="satPlanet" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#55b0ec"/><stop offset="1" stop-color="#2f8ed6"/>
+              </linearGradient>
+              <linearGradient id="satRing" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#8bc53f"/><stop offset=".55" stop-color="#55b0ec"/><stop offset="1" stop-color="#2f8ed6"/>
+              </linearGradient>
+            </defs>
+            <g transform="translate(100 100) rotate(-22)">
+              <ellipse cx="0" cy="0" rx="87" ry="34" fill="none" stroke="url(#satRing)" stroke-width="12.3"/>
+              <circle cx="0" cy="0" r="43.7" fill="url(#satPlanet)"/>
+            </g>
+          </svg>
+        </span>
+        <div>
+          <h1 class="wordmark">Saturn</h1>
+          <p class="sub" id="subTitle">Набор инструментов для документов</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button id="homeBtn" class="ghost hidden" title="На главную">← На главную</button>
+        <button id="settingsBtn" class="ghost" title="Настройки">⚙ Настройки</button>
+      </div>
+    </header>
+
+    <!-- Home menu -->
+    <section id="homeView" class="home">
+      <div class="tiles">
+        <button class="tile" data-tool="ttn">
+          <span class="tile-icon">🧾</span>
+          <span class="tile-title">Обработка ТТН</span>
+          <span class="tile-desc">Разбивка накладных ГСМ по страницам, имя <code>{накладная}_{договор}.pdf</code></span>
+        </button>
+        <button class="tile" data-tool="split">
+          <span class="tile-icon">✂️</span>
+          <span class="tile-title">Разделитель PDF</span>
+          <span class="tile-desc">Делит PDF по страницам. Имя по умолчанию <code>{имя}_splitted_1,2,3…</code>, можно переписать</span>
+        </button>
+        <button class="tile" data-tool="img">
+          <span class="tile-icon">🖼️</span>
+          <span class="tile-title">Фото → PDF</span>
+          <span class="tile-desc">JPG/PNG/TIFF в PDF: объединить в один файл или сделать по одному</span>
+        </button>
+        <button class="tile" data-tool="merge">
+          <span class="tile-icon">📎</span>
+          <span class="tile-title">Объединить PDF</span>
+          <span class="tile-desc">Несколько PDF в один файл: перетаскивайте страницы в нужном порядке и задайте имя</span>
+        </button>
+        <button class="tile" data-tool="approval">
+          <span class="tile-icon">🏷️</span>
+          <span class="tile-title">Определитель листов согласования</span>
+          <span class="tile-desc">Читает шапку и переименовывает: <code>Лист согласований к Договору № … от … Контрагент</code></span>
+        </button>
+        <button class="tile" data-tool="sort">
+          <span class="tile-icon">🗂️</span>
+          <span class="tile-title">Сортировка накладных</span>
+          <span class="tile-desc">Раскладывает готовые <code>{накладная}_{договор}.pdf</code> по папкам договоров (в подпапку <code>ТТН</code>). Есть пробный прогон.</span>
+        </button>
+        <button class="tile" data-tool="compress">
+          <span class="tile-icon">🗜️</span>
+          <span class="tile-title">Сжатие PDF</span>
+          <span class="tile-desc">Уменьшает размер PDF. Режим «Без потерь» или пережатие сканов (визуально без потерь). Отчёт: было → стало.</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- PDF tools: ttn / split / approval -->
+    <section id="pdfView" class="hidden">
+      <section id="dropzone" class="dropzone">
+        <div class="dz-inner">
+          <div class="dz-icon">📄⬇️</div>
+          <p><b>Перетащите сюда PDF-файлы</b> или</p>
+          <button id="pickBtn" class="primary">Выбрать PDF…</button>
+          <p class="hint" id="dzHint"></p>
+        </div>
+      </section>
+
+      <!-- Staging: show the chosen files, let the user add more, then start. -->
+      <section id="stageArea" class="hidden">
+        <div class="toolbar">
+          <button id="stageClearBtn" class="ghost">↺ Очистить</button>
+          <div class="spacer"></div>
+          <button id="stageAddBtn" class="ghost">＋ Добавить PDF…</button>
+          <button id="stageStartBtn" class="primary">▶ Начать обработку</button>
+        </div>
+        <div id="stageCount" class="result-count"></div>
+        <div id="stageList" class="stage-list"></div>
+      </section>
+
+      <section id="workarea" class="hidden">
+        <div class="toolbar">
+          <button id="restartBtn" class="ghost">↺ Начать заново</button>
+          <button id="pauseBtn" class="ghost hidden" title="Приостановить/продолжить обработку">⏸ Пауза</button>
+          <button id="undoBtn" class="ghost hidden" title="Отменить последнее действие (Ctrl+Z)">↶ Отменить</button>
+          <div class="spacer"></div>
+          <button id="pickOutBtn" class="ghost">Папка вывода…</button>
+          <button id="saveBtn" class="primary" disabled>💾 Сохранить всё</button>
+        </div>
+
+        <div class="outdir-row">
+          <span class="outdir-label-caption">Папка вывода:</span>
+          <span id="outDirLabel" class="muted">не выбрана</span>
+        </div>
+
+        <div id="progressWrap" class="progress hidden">
+          <div class="bar"><div id="progressBar" class="fill"></div></div>
+          <span id="progressText" class="muted"></span>
+        </div>
+
+        <div id="cards" class="cards"></div>
+
+        <div id="resultCount" class="result-count hidden"></div>
+      </section>
+    </section>
+
+    <!-- Image -> PDF tool -->
+    <section id="imgView" class="hidden">
+      <section id="imgDrop" class="dropzone">
+        <div class="dz-inner">
+          <div class="dz-icon">🖼️⬇️</div>
+          <p><b>Перетащите сюда фото (JPG, PNG, TIFF)</b> или</p>
+          <button id="imgPickBtn" class="primary">Выбрать изображения…</button>
+          <p class="hint">Из фотографий будет собран PDF</p>
+        </div>
+      </section>
+
+      <section id="imgArea" class="hidden">
+        <div class="toolbar">
+          <button id="imgRestartBtn" class="ghost">↺ Начать заново</button>
+          <div class="spacer"></div>
+          <div class="seg">
+            <button id="imgModeOne" class="seg-btn active">В один PDF</button>
+            <button id="imgModeEach" class="seg-btn">По одному</button>
+          </div>
+          <button id="imgPickOutBtn" class="ghost">Папка вывода…</button>
+          <button id="imgSaveBtn" class="primary" disabled>💾 Сохранить</button>
+        </div>
+
+        <div class="outdir-row">
+          <span class="outdir-label-caption">Папка вывода:</span>
+          <span id="imgOutDirLabel" class="muted">не выбрана</span>
+        </div>
+
+        <label id="combinedNameRow" class="combined-row">
+          <span>Имя итогового PDF:</span>
+          <input id="combinedName" value="photos" />
+        </label>
+
+        <div id="imgCards" class="cards"></div>
+        <div id="imgCount" class="result-count hidden"></div>
+      </section>
+    </section>
+
+    <!-- Merge PDFs tool -->
+    <section id="mergeView" class="hidden">
+      <section id="mergeDrop" class="dropzone">
+        <div class="dz-inner">
+          <div class="dz-icon">📎⬇️</div>
+          <p><b>Перетащите сюда PDF-файлы</b> или</p>
+          <button id="mergePickBtn" class="primary">Выбрать PDF…</button>
+          <p class="hint">Страницы всех файлов появятся ниже — расставьте их в нужном порядке</p>
+        </div>
+      </section>
+
+      <section id="mergeArea" class="hidden">
+        <div class="toolbar">
+          <button id="mergeRestartBtn" class="ghost">↺ Начать заново</button>
+          <button id="mergeAddBtn" class="ghost">＋ Добавить PDF…</button>
+          <div class="spacer"></div>
+          <button id="mergePickOutBtn" class="ghost">Папка вывода…</button>
+          <button id="mergeSaveBtn" class="primary" disabled>📎 Объединить</button>
+        </div>
+
+        <div class="outdir-row">
+          <span class="outdir-label-caption">Папка вывода:</span>
+          <span id="mergeOutDirLabel" class="muted">не выбрана</span>
+        </div>
+
+        <label class="combined-row">
+          <span>Имя итогового PDF:</span>
+          <input id="mergeName" value="merged" />
+        </label>
+
+        <p class="hint" style="margin:0 0 12px">Перетаскивайте карточки или пользуйтесь стрелками, чтобы задать порядок страниц.</p>
+        <div id="mergeCards" class="cards"></div>
+        <div id="mergeCount" class="result-count hidden"></div>
+      </section>
+    </section>
+
+    <!-- Сжатие PDF -->
+    <section id="compressView" class="hidden">
+      <section id="cmpDrop" class="dropzone">
+        <div class="dz-inner">
+          <div class="dz-icon">🗜️⬇️</div>
+          <p><b>Перетащите сюда PDF-файлы</b> или</p>
+          <button id="cmpPickBtn" class="primary">Выбрать PDF…</button>
+          <p class="hint">Файлы уменьшаются в размере; оригиналы не меняются — результат кладётся в папку вывода.</p>
+        </div>
+      </section>
+
+      <section id="cmpArea" class="hidden">
+        <div class="toolbar">
+          <button id="cmpRestartBtn" class="ghost">↺ Начать заново</button>
+          <button id="cmpAddBtn" class="ghost">＋ Добавить PDF…</button>
+          <div class="spacer"></div>
+          <button id="cmpPickOutBtn" class="ghost">Папка вывода…</button>
+          <button id="cmpRunBtn" class="primary" disabled>🗜️ Сжать</button>
+        </div>
+
+        <div class="outdir-row">
+          <span class="outdir-label-caption">Папка вывода:</span>
+          <span id="cmpOutDirLabel" class="muted">не выбрана</span>
+        </div>
+
+        <div class="cmp-modes">
+          <span class="cmp-modes-cap">Режим сжатия:</span>
+          <div class="seg" id="cmpModes">
+            <button class="seg-btn" data-preset="lossless">Без потерь</button>
+            <button class="seg-btn active" data-preset="high">Высокое качество</button>
+            <button class="seg-btn" data-preset="medium">Среднее</button>
+            <button class="seg-btn" data-preset="strong">Сильное</button>
+          </div>
+        </div>
+        <p class="hint" id="cmpModeHint"></p>
+
+        <div id="cmpProgress" class="progress hidden">
+          <div class="bar"><div id="cmpProgressBar" class="fill"></div></div>
+          <span id="cmpProgressText" class="muted"></span>
+        </div>
+
+        <div id="cmpList" class="stage-list"></div>
+        <div id="cmpReport" class="sort-report hidden"></div>
+      </section>
+    </section>
+
+    <!-- Сортировка накладных -->
+    <section id="sortView" class="hidden">
+      <div class="toolbar">
+        <button id="sortRestartBtn" class="ghost">↺ Сброс</button>
+        <div class="spacer"></div>
+        <button id="sortDryBtn" class="primary" disabled>🔎 Пробный прогон</button>
+        <button id="sortApplyBtn" class="primary" disabled>🗂️ Выполнить сортировку</button>
+      </div>
+
+      <div class="sort-pickers">
+        <div class="sort-pick">
+          <div class="sort-pick-head">
+            <span class="sort-pick-cap">Папка с накладными (источник)</span>
+            <button id="sortSrcBtn" class="ghost">Выбрать…</button>
+          </div>
+          <div id="sortSrcLabel" class="sort-path muted">не выбрана</div>
+        </div>
+        <div class="sort-pick">
+          <div class="sort-pick-head">
+            <span class="sort-pick-cap">Папка назначения (куда разложить)</span>
+            <button id="sortDestBtn" class="ghost">Выбрать…</button>
+          </div>
+          <div id="sortDestLabel" class="sort-path muted">не выбрана</div>
+        </div>
+      </div>
+
+      <p class="hint" id="sortHint">Файлы вида <code>{накладная}_{договор}.pdf</code> раскладываются по
+        <b>уже существующим</b> папкам договоров в папке назначения — в подпапку <code>ТТН</code>.
+        Новые папки не создаются и существующие не переименовываются: нужная папка ищется
+        по числовому коду договора (напр. <code>425-25</code>), файлы <code>-АЗС</code> — только
+        среди папок с «АЗС». Всё, для чего папка не нашлась, <b>остаётся в папке-источнике</b> —
+        можно выбрать другую папку назначения (например, другой год) и прогнать остаток ещё раз.
+        Сначала сделайте пробный прогон — ничего не двигается, показывается только план.</p>
+
+      <div id="sortReport" class="sort-report hidden"></div>
+    </section>
+
+    <!-- Settings modal -->
+    <div id="settingsModal" class="modal hidden">
+      <div class="modal-card">
+        <h2>Настройки</h2>
+
+        <label class="field">
+          <span>Anthropic API-ключ (для AI-распознавания)</span>
+          <input id="apiKey" type="password" placeholder="sk-ant-…" autocomplete="off" />
+          <small class="muted">Хранится только на этом компьютере. Нужен для резервного распознавания через Claude.</small>
+        </label>
+
+        <label class="field">
+          <span>Модель</span>
+          <input id="model" type="text" placeholder="claude-opus-4-8" />
+        </label>
+
+        <label class="field checkbox">
+          <input id="useAiFallback" type="checkbox" />
+          <span>Использовать AI-распознавание (Claude), когда OCR не уверен</span>
+        </label>
+
+        <label class="field">
+          <span>Когда подключать AI</span>
+          <select id="aiOnConfidence">
+            <option value="low">Только при низкой уверенности (рекомендуется)</option>
+            <option value="medium">При низкой и средней уверенности</option>
+            <option value="never">Никогда (только локальный OCR)</option>
+          </select>
+        </label>
+
+        <div class="modal-actions">
+          <button id="settingsCancel" class="ghost">Отмена</button>
+          <button id="settingsSave" class="primary">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Zoom / review modal -->
+    <div id="zoomModal" class="modal zoom hidden">
+      <!-- Side navigation between cards (previous / next). -->
+      <button id="zoomPrev" class="zoom-nav prev" title="Предыдущая карточка (←)">‹</button>
+      <button id="zoomNext" class="zoom-nav next" title="Следующая карточка (→)">›</button>
+      <div class="zoom-card">
+        <div class="zoom-header">
+          <span id="zoomTitle" class="zoom-title"></span>
+          <div class="zoom-header-right">
+            <span id="zoomCounter" class="zoom-counter"></span>
+            <span id="zoomBadges"></span>
+            <button id="zoomClose" class="ghost" title="Закрыть (Esc)">✕</button>
+          </div>
+        </div>
+        <div class="zoom-body">
+          <div class="zoom-image" id="zoomImageWrap" title="Клик — увеличить/уместить">
+            <div id="zoomLoading" class="zoom-loading">Загрузка изображения…</div>
+            <img id="zoomImg" alt="страница" />
+          </div>
+          <div class="zoom-side">
+            <div id="zoomTtnFields">
+              <label class="small field">накладная
+                <input id="zoomNak" placeholder="напр. 80130800" />
+              </label>
+              <label class="small field">договор
+                <input id="zoomDog" placeholder="напр. ST-248/26-KS или Перемещение" />
+              </label>
+            </div>
+            <label id="zoomNameField" class="small field hidden">имя файла
+              <input id="zoomName" placeholder="имя файла" />
+            </label>
+            <div class="fname">→ <span id="zoomFilename" class="name"></span></div>
+            <p class="zoom-hint muted">Проверьте данные по изображению и при необходимости
+              исправьте — изменения сразу применятся к карточке.</p>
+            <div class="zoom-actions">
+              <button id="zoomDelete" class="del-one" title="Удалить эту карточку и перейти к следующей">🗑 Удалить</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Faint Saturn watermark shown while a batch is being processed. -->
+    <div id="procLoader" class="proc-loader" aria-hidden="true">
+      <svg width="240" height="240" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="plPlanet" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#55b0ec"/><stop offset="1" stop-color="#2f8ed6"/>
+          </linearGradient>
+          <linearGradient id="plRing" gradientUnits="userSpaceOnUse" x1="-95" y1="-95" x2="95" y2="95">
+            <stop offset="0" stop-color="#8bc53f"/><stop offset=".5" stop-color="#55b0ec"/><stop offset="1" stop-color="#2f8ed6"/>
+            <animateTransform attributeName="gradientTransform" type="rotate"
+              from="0 0 0" to="360 0 0" dur="5s" repeatCount="indefinite"/>
+          </linearGradient>
+        </defs>
+        <g transform="translate(100 100)">
+          <g transform="rotate(-22)">
+            <ellipse cx="0" cy="0" rx="87" ry="34" fill="none" stroke="url(#plRing)" stroke-width="12.3"/>
+          </g>
+          <circle cx="0" cy="0" r="43.7" fill="url(#plPlanet)"/>
+        </g>
+      </svg>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

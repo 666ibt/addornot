@@ -1,0 +1,17 @@
+node_modules/
+release/
+dist/
+*.log
+.DS_Store
+# The bundled tessdata/*.traineddata.gz IS committed (offline OCR).
+# Ignore only the runtime cache and any decompressed copies.
+_tessdata/
+/eng.traineddata
+/rus.traineddata
+# Smoke-test scratch files
+_smoke_*.js
+_ui_probe*.js
+_dbg.js
+_sample.pdf
+# Never commit secrets
+.env

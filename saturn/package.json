@@ -1,0 +1,80 @@
+{
+  "name": "saturn",
+  "version": "1.12.1",
+  "description": "Saturn — desktop app that splits multi-page PDF scans of fuel/ГСМ waybills (ТТН) into one PDF per page, named {накладная}_{договор}.pdf.",
+  "author": "addornot",
+  "license": "MIT",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0",
+    "jimp": "^0.22.12",
+    "mupdf": "^1.28.0",
+    "pdf-lib": "^1.17.1",
+    "tesseract.js": "^5.1.1",
+    "utif2": "^4.1.0"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.addornot.saturn",
+    "productName": "Saturn",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "tessdata",
+        "to": "tessdata"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "Saturn-${version}-portable.exe"
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office"
+    }
+  }
+}
