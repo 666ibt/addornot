@@ -1193,8 +1193,10 @@ async function sortDryRun() {
 
 async function sortApply() {
   if (!sortState.report) return;
-  const n = sortState.report.toSort + sortState.report.problems;
-  if (!window.confirm(`Переместить ${n} файлов? Действие изменит папки на диске.`)) return;
+  // Only the matched files move; the rest stay put for the next run.
+  const n = sortState.report.toSort;
+  if (!n) return toast('Нечего переносить — ни один файл не сопоставлен.', 'err');
+  if (!window.confirm(`Переместить ${n} ${pluralFiles(n)}? Остальные останутся в папке-источнике.`)) return;
   sortState.busy = true;
   sortUpdateButtons();
   showProcLoader();
@@ -1202,7 +1204,7 @@ async function sortApply() {
     const res = await api.sortApply({ sourceDir: sortState.source, destDir: sortState.dest });
     applySortResult(res);
     const msg = `Перемещено ${res.moved}` +
-      (res.unsortedMoved ? `, в «неотсортированные» ${res.unsortedMoved}` : '') +
+      (res.leftInSource ? `, осталось в источнике ${res.leftInSource}` : '') +
       (res.failed ? `, ошибок ${res.failed}` : '');
     toast(msg + '.', res.failed ? 'err' : 'ok');
     // Files have moved — the plan no longer reflects the source folder.
@@ -1216,7 +1218,8 @@ async function sortApply() {
   }
 }
 
-// Overlay per-file move outcomes (✓ / ✗) onto the already-rendered report.
+// Overlay per-file outcomes onto the already-rendered report: ✓ moved,
+// ✗ failed, ↩ left in the source folder for the next run.
 function applySortResult(res) {
   const byName = new Map();
   for (const r of res.results || []) byName.set(r.fileName + '|' + r.folder, r);
@@ -1224,20 +1227,27 @@ function applySortResult(res) {
     const key = row.dataset.file + '|' + row.dataset.folder;
     const r = byName.get(key);
     if (!r) return;
-    row.classList.add(r.ok ? 'moved' : 'failed');
     const st = row.querySelector('.sort-file-status');
+    if (r.stayed) {
+      row.classList.add('stayed');
+      if (st) st.textContent = '↩';
+      row.title = 'Файл остался в папке-источнике';
+      return;
+    }
+    row.classList.add(r.ok ? 'moved' : 'failed');
     if (st) st.textContent = r.ok ? '✓' : '✗';
     if (!r.ok && r.error) row.title = r.error;
   });
-  const opened = res.unsortedDir || (sortState.source + '/неотсортированные');
   const banner = document.querySelector('#sortReport .sort-done');
   if (banner) {
     banner.classList.remove('hidden');
-    banner.textContent = `Готово. Перемещено ${res.moved}` +
-      (res.unsortedMoved ? `; проблемных в «неотсортированные»: ${res.unsortedMoved}` : '') +
-      (res.failed ? `; ошибок: ${res.failed}` : '') + '.';
+    banner.innerHTML = `Готово. Перемещено <b>${res.moved}</b>`
+      + (res.failed ? `; ошибок: <b>${res.failed}</b>` : '')
+      + (res.leftInSource
+        ? `. В папке-источнике осталось <b>${res.leftInSource}</b> ${pluralFiles(res.leftInSource)}`
+          + ' — выберите другую папку назначения и сделайте ещё один пробный прогон.'
+        : '. Папка-источник разобрана полностью.');
   }
-  if (res.unsortedMoved) { try { api.openPath(opened); } catch (_) {} }
 }
 
 function sortStat(label, value, kind) {
@@ -1292,16 +1302,19 @@ function renderSortReport(report, applied) {
 
   if (report.unsorted.length) {
     const rows = report.unsorted.map((u) => `
-      <div class="sort-file" data-file="${escapeHtml(u.fileName)}" data-folder="неотсортированные">
+      <div class="sort-file" data-file="${escapeHtml(u.fileName)}" data-folder="__stayed__">
         <span class="sort-file-status"></span>
         <span class="sort-file-name">${escapeHtml(u.fileName)}</span>
         <span class="sort-file-reason">${escapeHtml(u.reason)}</span>
       </div>`).join('');
     parts.push(`<div class="sort-group problem">
-      <div class="sort-group-head"><span class="sort-folder">🗃️ неотсортированные</span>
+      <div class="sort-group-head"><span class="sort-folder">🗃️ останутся в папке-источнике</span>
         <span class="sort-group-count">${report.unsorted.length} ${pluralFiles(report.unsorted.length)}</span></div>
       <div class="sort-group-files">${rows}</div>
     </div>`);
+    parts.push('<p class="hint" style="margin:-4px 0 12px">Эти файлы никуда не переносятся и остаются '
+      + 'на месте. После сортировки можно выбрать другую папку назначения (например, другой год) '
+      + 'и прогнать их ещё раз.</p>');
   }
 
   if (!report.groups.length && !report.unsorted.length) {

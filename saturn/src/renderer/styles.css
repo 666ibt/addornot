@@ -289,6 +289,7 @@ button.ghost:hover { border-color: #3a4552; }
 .sort-file + .sort-file { border-top: 1px solid rgba(255,255,255,.04); }
 .sort-file-status { width: 14px; text-align: center; color: var(--muted); }
 .sort-file.moved .sort-file-status { color: var(--green); }
+.sort-file.stayed .sort-file-status { color: var(--amber); }
 .sort-file.failed { color: var(--red); }
 .sort-file.failed .sort-file-status { color: var(--red); }
 .sort-file-name { flex: 1; word-break: break-all; }

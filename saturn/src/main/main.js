@@ -614,11 +614,15 @@ ipcMain.handle('compress:run', async (_e, { filePaths, preset, outputDir }) => {
 // the tool never creates one. Those folders are named by hand on a shared drive
 // ("425. Договор № ST-425-25-K от 25.07.2025 E-OIL"), a form the app cannot
 // reproduce from a file name, so creating a folder could only ever produce a
-// second, wrong-looking set beside the real ones. Anything without a matching
-// folder is left for a human instead, in «неотсортированные».
+// second, wrong-looking set beside the real ones.
+//
+// Whatever finds no folder is left exactly where it is, in the source folder.
+// That makes the tool repeatable: sort against «2023 год», then point it at
+// «2024 год» and run again on the remainder, and so on.
 // ---------------------------------------------------------------------------
 
-const UNSORTED_DIR = 'неотсортированные'; // subfolder in the SOURCE for problems
+// Marker used in the per-file results for "not moved, still in the source".
+const STAYED = '__stayed__';
 
 /** Move a file, falling back to copy+unlink when src/dst are on different
  *  drives (fs.rename throws EXDEV across volumes — common on Windows). */
@@ -635,8 +639,8 @@ async function moveFile(src, dst) {
   }
 }
 
-/** Top-level *.pdf file names in a directory (subfolders are ignored, so an
- *  existing "неотсортированные" folder is never re-processed). */
+/** Top-level *.pdf file names in a directory (subfolders are ignored). Files
+ *  that found no folder stay right here, so a repeat run picks them up again. */
 async function listPdfNames(dir) {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   return entries.filter((e) => e.isFile() && /\.pdf$/i.test(e.name)).map((e) => e.name);
@@ -776,28 +780,14 @@ async function applySort(sourceDir, destDir, plan) {
     }
   }
 
-  // Everything that didn't match → неотсортированные in the SOURCE folder.
-  let unsortedMoved = 0;
-  const unsortedDir = path.join(sourceDir, UNSORTED_DIR);
-  if (rp.unsorted.length) {
-    await fs.mkdir(unsortedDir, { recursive: true });
-    const used = new Set();
-    for (const u of rp.unsorted) {
-      // eslint-disable-next-line no-await-in-loop
-      const finalName = await uniqueName(unsortedDir, u.fileName, used);
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await moveFile(path.join(sourceDir, u.fileName), path.join(unsortedDir, finalName));
-        unsortedMoved += 1;
-        results.push({ fileName: u.fileName, folder: UNSORTED_DIR, finalName, ok: true });
-      } catch (err) {
-        failed += 1;
-        results.push({ fileName: u.fileName, folder: UNSORTED_DIR, ok: false, error: String(err.message || err) });
-      }
-    }
+  // Everything that didn't match simply STAYS in the source folder — untouched
+  // and still at the top level, so the user can point the tool at another
+  // destination (another year, say) and run again on what is left.
+  for (const u of rp.unsorted) {
+    results.push({ fileName: u.fileName, folder: STAYED, reason: u.reason, ok: true, stayed: true });
   }
 
-  return { moved, failed, unsortedMoved, unsortedDir, results };
+  return { moved, failed, leftInSource: rp.unsorted.length, results };
 }
 
 // Two folder pickers. Titles differ so the dialog is self-explanatory.

@@ -8,7 +8,7 @@
  * those names back and decides where each file belongs:
  *   - good file  → grouped under its contract (договор)
  *   - problem    → накладная or договор is "NA", or the name isn't in the
- *                  expected format → goes to "неотсортированные".
+ *                  expected format → never moved; stays in the source folder.
  *
  * No I/O here (no fs, no path) so it stays unit-testable; the actual moving and
  * on-disk collision handling live in main.js.
