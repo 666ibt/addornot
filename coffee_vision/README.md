@@ -112,6 +112,23 @@ python -m scripts.run_service --report-now                  # print/send current
 `--target-fps 6` (default) throttles analytics to keep CPU sane — detection is the
 expensive part, and 6 fps is plenty for counting cups and watching people.
 
+## Verified on real footage
+
+The full service was run end-to-end on a real 230 s overhead coffee-bar clip
+(3483 frames): it processed the whole video without crashing, stamped every
+event with its day+shift, produced an end-of-shift report from the database,
+and reported cleanly that Telegram was unconfigured instead of failing.
+
+Line crossing was verified two ways: 8 unit tests (counted-once, direction
+filter, off-segment, diagonal, per-class, non-product, shift transitions) and a
+run on the real clip where a tracked person crossing the line was counted
+exactly once.
+
+⚠️ **Product count was 0 on that clip** — the line was placed blind, across the
+work area rather than the pickup edge, and most cups in view are static stacks.
+That is a *placement* issue, not a logic one: put the line on the real handover
+point with `scripts.setup_line` before trusting the numbers.
+
 ## Shifts & Telegram reports 📤
 
 Shifts are **00:00–08:00**, **08:00–16:00**, **16:00–24:00**. Every event is
