@@ -15,11 +15,27 @@ remapping. Check `detector.mode` (`"yolo-world"` vs `"coco-fallback"`).
 
 from __future__ import annotations
 
+import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
 import numpy as np
+
+
+def _clip_installed() -> bool:
+    """Is the CLIP text encoder importable? YOLO-World needs it for prompts."""
+    try:
+        import clip  # noqa: F401
+        return True
+    except Exception:  # noqa: BLE001 — a broken install counts as missing
+        return False
+
+
+def _git_available() -> bool:
+    """ultralytics installs CLIP with `pip install git+https://…` — that needs git."""
+    return shutil.which("git") is not None
 
 # If a model fine-tuned on your own footage is installed here (by scripts.train),
 # it is used in preference to YOLO-World / COCO. Its own class names drive labels.
@@ -115,6 +131,20 @@ class ProductDetector:
             self.mode = "custom"
             print(f"[detector] using fine-tuned weights: {cw} "
                   f"(classes: {list(self.model.names.values())})")
+            return
+
+        # 2) Don't even attempt YOLO-World when it provably can't work here.
+        # Without CLIP installed, ultralytics tries `pip install git+https://…`,
+        # which hangs forever on a machine with no git. Skip straight to COCO.
+        force_coco = os.environ.get("COFFEE_VISION_FORCE_COCO", "").strip() not in ("", "0")
+        if allow_fallback and (force_coco or not (_clip_installed() or _git_available())):
+            why = ("COFFEE_VISION_FORCE_COCO is set" if force_coco
+                   else "CLIP is not installed and git is unavailable to fetch it")
+            print(f"[detector] skipping YOLO-World ({why}); using COCO '{fallback_weights}'. "
+                  f"Install git (and let it fetch CLIP) for open-vocabulary prompts.")
+            self.model = YOLO(fallback_weights)
+            self._coco_names = dict(self.model.names)
+            self.mode = "coco-fallback"
             return
 
         try:
